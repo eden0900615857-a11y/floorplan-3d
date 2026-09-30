@@ -1,5 +1,5 @@
 // 2D 校正編輯器：在原圖上直接修正牆。
-// 工具：選取（移動牆、拖曳端點）、畫牆、比例尺。支援縮放、平移、復原與重做。
+// 工具：選取（移動牆、拖曳端點、沿牆移動門窗）、畫牆、加門、加窗、比例尺。支援縮放、平移、復原與重做。
 // 所有修改都寫回同一份平面圖 JSON，每完成一個動作呼叫 opts.onCommit()。
 (function (root) {
   const SNAP_PX = 10;         // 吸附距離（螢幕像素）
@@ -17,7 +17,9 @@
     const ctx = canvas.getContext('2d');
     const history = new FPEdit.History();
 
-    let plan = null, image = null, tool = 'select', selected = null;
+    let plan = null, image = null, tool = 'select';
+    let selected = null;      // 選取中的牆 id
+    let selOpening = null;    // 選取中的門窗 id（和牆只會選一個）
     let view = { s: 50, ox: 0, oy: 0 };   // 螢幕座標 = 公尺 × s + o
     let drag = null, draft = null, scalePts = [], cw = 0, ch = 0, spaceDown = false;
     let userMoved = false;   // 使用者自己縮放或平移過，就不再自動調整視野
@@ -58,15 +60,51 @@
     }
     new ResizeObserver(resize).observe(el);
 
-    function wallPath(w) {
-      const a = toScreen(w.a), b = toScreen(w.b);
+    // 牆上 s0–s1 這一段（沿牆距離，公尺）的矩形路徑
+    function spanPath(w, s0, s1, thickness) {
+      const L = FPPlan.wallLength(w);
+      const ux = (w.b[0] - w.a[0]) / L, uy = (w.b[1] - w.a[1]) / L;
+      const a = toScreen([w.a[0] + ux * s0, w.a[1] + uy * s0]), b = toScreen([w.a[0] + ux * s1, w.a[1] + uy * s1]);
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
       ctx.save();
       ctx.translate((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
-      ctx.rotate(Math.atan2(b[1] - a[1], b[0] - a[0]));
+      ctx.rotate(Math.atan2(uy, ux));
       ctx.beginPath();
-      ctx.rect(-len / 2, -w.thickness * view.s / 2, len, Math.max(1, w.thickness * view.s));
+      ctx.rect(-len / 2, -thickness * view.s / 2, len, Math.max(1, thickness * view.s));
       ctx.restore();
+    }
+
+    // 門：開門弧與門片；窗：淡色底加兩條細線
+    function drawOpening(w, sp, color) {
+      const o = sp.o, L = FPPlan.wallLength(w);
+      const ux = (w.b[0] - w.a[0]) / L, uy = (w.b[1] - w.a[1]) / L;
+      const at = d => toScreen([w.a[0] + ux * d, w.a[1] + uy * d]);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      if (o.type === 'window') {
+        spanPath(w, sp.s0, sp.s1, w.thickness);
+        ctx.globalAlpha = 0.2; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+        const off = w.thickness * view.s / 4, nx = -uy * off, ny = ux * off;
+        const p0 = at(sp.s0), p1 = at(sp.s1);
+        ctx.beginPath();
+        ctx.moveTo(p0[0] + nx, p0[1] + ny); ctx.lineTo(p1[0] + nx, p1[1] + ny);
+        ctx.moveTo(p0[0] - nx, p0[1] - ny); ctx.lineTo(p1[0] - nx, p1[1] - ny);
+        ctx.stroke();
+        return;
+      }
+      const hinge = at(o.hinge === 'b' ? sp.s1 : sp.s0), jamb = at(o.hinge === 'b' ? sp.s0 : sp.s1);
+      const r = (sp.s1 - sp.s0) * view.s;
+      // a→b 的左側（y 向下的螢幕座標）是 (uy, -ux)
+      const side = o.swing === 'right' ? -1 : 1;
+      const nx = uy * side, ny = -ux * side;
+      const leaf = [hinge[0] + nx * r, hinge[1] + ny * r];
+      const a0 = Math.atan2(jamb[1] - hinge[1], jamb[0] - hinge[0]), a1 = Math.atan2(ny, nx);
+      let d = a1 - a0;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d <= -Math.PI) d += 2 * Math.PI;
+      ctx.beginPath(); ctx.arc(hinge[0], hinge[1], r, a0, a1, d < 0); ctx.stroke();
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(hinge[0], hinge[1]); ctx.lineTo(leaf[0], leaf[1]); ctx.stroke();
     }
 
     function label(text, x, y) {
@@ -99,12 +137,26 @@
         ctx.globalAlpha = 1;
       }
       const accent = css('--accent'), sel = css('--select'), ink = css('--ink');
+      // 牆只畫實心的部分，門窗的位置留空，另外畫門窗符號
       for (const w of plan.walls) {
-        wallPath(w);
+        if (!FPPlan.wallLength(w)) continue;
+        const ops = FPPlan.openingsOf(plan, w.id);
+        const spans = FPPlan.openingSpans(w, ops);
+        let cur = 0;
+        const solid = [];
+        for (const sp of spans) { if (sp.s0 > cur) solid.push([cur, sp.s0]); cur = Math.max(cur, sp.s1); }
+        if (cur < FPPlan.wallLength(w)) solid.push([cur, FPPlan.wallLength(w)]);
         ctx.fillStyle = w.id === selected ? sel : accent;
         ctx.globalAlpha = w.id === selected ? 0.9 : 0.75;
-        ctx.fill();
+        for (const [s0, s1] of solid) { spanPath(w, s0, s1, w.thickness); ctx.fill(); }
         ctx.globalAlpha = 1;
+        for (const sp of spans) drawOpening(w, sp, sp.o.id === selOpening ? sel : ink);
+      }
+      const so = selOpening && FPEdit.findOpening(plan, selOpening);
+      if (so && drag && drag.type === 'opening') {
+        const w = FPEdit.findWall(plan, so.wall), L = FPPlan.wallLength(w);
+        const c = toScreen([w.a[0] + (w.b[0] - w.a[0]) * so.offset / L, w.a[1] + (w.b[1] - w.a[1]) * so.offset / L]);
+        label('寬 ' + so.width.toFixed(2) + ' m', c[0], c[1] - 22);
       }
       // 端點：所有牆畫小點，選取中的牆畫可拖曳的方塊
       ctx.fillStyle = ink;
@@ -158,8 +210,17 @@
       return t[t.length >> 1];
     }
 
+    function select(kind, id) {
+      selected = kind === 'wall' ? id : null;
+      selOpening = kind === 'opening' ? id : null;
+    }
+
     function emit() {
-      if (opts.onSelect) opts.onSelect(selected ? FPEdit.findWall(plan, selected) : null);
+      if (opts.onSelect) {
+        const w = selected && FPEdit.findWall(plan, selected);
+        const o = selOpening && FPEdit.findOpening(plan, selOpening);
+        opts.onSelect(w ? { kind: 'wall', item: w } : o ? { kind: 'opening', item: o } : null);
+      }
       if (opts.onHistory) opts.onHistory({ canUndo: history.canUndo, canRedo: history.canRedo });
     }
 
@@ -197,17 +258,32 @@
           opts.onScaleMeasured(Math.hypot(scalePts[1][0] - scalePts[0][0], scalePts[1][1] - scalePts[0][1]));
         }
         draw();
+      } else if (tool === 'door' || tool === 'window') {
+        // 點在牆上，就在那個位置加一扇門或一扇窗
+        const hit = FPEdit.hitTest(plan, p, tol(), null);
+        if (!hit) { if (opts.onMiss) opts.onMiss(); return; }
+        const w = FPEdit.findWall(plan, hit.id);
+        history.record(plan);
+        const o = FPEdit.addOpening(plan, w.id, tool, FPEdit.projectOnWall(w, p), FPPlan.OPENING_DEFAULTS[tool].width);
+        select('opening', o.id);
+        commit();
       } else {
         const hit = FPEdit.hitTest(plan, p, tol(), selected);
+        const ho = !(hit && hit.part !== 'body') && FPEdit.hitOpening(plan, p, tol());
         if (hit && hit.part !== 'body') {
           drag = { type: 'end', id: hit.id, part: hit.part, recorded: false };
+        } else if (ho) {
+          select('opening', ho.id);
+          const w = FPEdit.findWall(plan, ho.wall);
+          drag = { type: 'opening', id: ho.id, grab: FPEdit.projectOnWall(w, p) - ho.offset, start: p, recorded: false };
+          emit();
         } else if (hit) {
-          selected = hit.id;
+          select('wall', hit.id);
           const w = FPEdit.findWall(plan, hit.id);
           drag = { type: 'move', id: hit.id, start: p, orig: { a: w.a.slice(), b: w.b.slice() }, recorded: false };
           emit();
         } else {
-          if (selected) { selected = null; emit(); }
+          if (selected || selOpening) { select(null); emit(); }
           drag = { type: 'pan', sx: e.clientX, sy: e.clientY, ox: view.ox, oy: view.oy };
         }
         draw();
@@ -221,6 +297,8 @@
         if (tool === 'select') {
           const hit = FPEdit.hitTest(plan, p, tol(), selected);
           canvas.style.cursor = !hit ? 'grab' : hit.part === 'body' ? 'move' : 'crosshair';
+        } else if (tool === 'door' || tool === 'window') {
+          canvas.style.cursor = FPEdit.hitTest(plan, p, tol(), null) ? 'copy' : 'not-allowed';
         } else {
           canvas.style.cursor = 'crosshair';
         }
@@ -243,6 +321,14 @@
           drag.recorded = true;
         }
         FPEdit.moveWall(plan, drag.id, drag.orig, dx, dy);
+      } else if (drag.type === 'opening') {
+        if (!drag.recorded) {
+          if (Math.hypot(p[0] - drag.start[0], p[1] - drag.start[1]) < tol() / 2) return;
+          history.record(plan);
+          drag.recorded = true;
+        }
+        const o = FPEdit.findOpening(plan, drag.id);
+        FPEdit.moveOpening(plan, drag.id, FPEdit.projectOnWall(FPEdit.findWall(plan, o.wall), p) - drag.grab);
       } else if (drag.type === 'draw') {
         draft.b = snapped(p, draft.a, null, e.altKey);
       }
@@ -253,14 +339,14 @@
       if (!drag) return;
       const d = drag;
       drag = null;
-      if ((d.type === 'end' || d.type === 'move') && d.recorded) {
+      if ((d.type === 'end' || d.type === 'move' || d.type === 'opening') && d.recorded) {
         commit();
       } else if (d.type === 'draw') {
         const len = Math.hypot(draft.b[0] - draft.a[0], draft.b[1] - draft.a[1]);
         if (len >= MIN_WALL) {
           history.record(plan);
           const w = FPEdit.addWall(plan, draft.a, draft.b, defaultThickness(), opts.getWallHeight());
-          selected = w.id;
+          select('wall', w.id);
           draft = null;
           commit();
           return;
@@ -295,6 +381,8 @@
       else if (e.key === ' ') { e.preventDefault(); spaceDown = true; }
       else if (!mod && e.key.toLowerCase() === 'v') setTool('select');
       else if (!mod && e.key.toLowerCase() === 'w') setTool('wall');
+      else if (!mod && e.key.toLowerCase() === 'd') setTool('door');
+      else if (!mod && e.key.toLowerCase() === 'n') setTool('window');
     });
     canvas.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
 
@@ -302,7 +390,7 @@
       draft = null;
       scalePts = [];
       if (opts.onScaleMeasured) opts.onScaleMeasured(null);
-      if (selected) { selected = null; emit(); }
+      if (selected || selOpening) { select(null); emit(); }
       draw();
     }
 
@@ -315,22 +403,28 @@
     }
 
     function deleteSelected() {
-      if (!selected) return;
+      if (!selected && !selOpening) return;
       history.record(plan);
-      FPEdit.deleteWall(plan, selected);
-      selected = null;
+      if (selected) FPEdit.deleteWall(plan, selected);
+      else FPEdit.deleteOpening(plan, selOpening);
+      select(null);
       commit();
+    }
+
+    function dropStaleSelection() {
+      if (selected && !FPEdit.findWall(plan, selected)) selected = null;
+      if (selOpening && !FPEdit.findOpening(plan, selOpening)) selOpening = null;
     }
 
     function undo() {
       if (!history.undo(plan)) return;
-      if (selected && !FPEdit.findWall(plan, selected)) selected = null;
+      dropStaleSelection();
       commit();
     }
 
     function redo() {
       if (!history.redo(plan)) return;
-      if (selected && !FPEdit.findWall(plan, selected)) selected = null;
+      dropStaleSelection();
       commit();
     }
 
@@ -339,6 +433,22 @@
       if (!w || !(t > 0) || w.thickness === t) return;
       history.record(plan);
       w.thickness = Math.round(t * 1000) / 1000;
+      commit();
+    }
+
+    function setOpeningWidth(v) {
+      const o = selOpening && FPEdit.findOpening(plan, selOpening);
+      if (!o || !(v > 0) || o.width === v) return;
+      history.record(plan);
+      FPEdit.setOpeningWidth(plan, o.id, v);
+      commit();
+    }
+
+    function flipDoor() {
+      const o = selOpening && FPEdit.findOpening(plan, selOpening);
+      if (!o || o.type !== 'door') return;
+      history.record(plan);
+      FPEdit.flipDoor(plan, o.id);
       commit();
     }
 
@@ -356,7 +466,7 @@
       plan = p;
       image = img;
       if (!options || options.resetHistory !== false) history.clear();
-      if (selected && !FPEdit.findWall(plan, selected)) selected = null;
+      dropStaleSelection();
       draft = null;
       scalePts = [];
       if (!options || !options.keepView) fit();
@@ -365,7 +475,7 @@
     }
 
     return {
-      setPlan, setTool, deleteSelected, undo, redo, setThickness, rescale, cancel,
+      setPlan, setTool, deleteSelected, undo, redo, setThickness, setOpeningWidth, flipDoor, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,
       get tool() { return tool; }
