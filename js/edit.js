@@ -253,11 +253,13 @@
     return real / measured;
   }
 
-  // 復原 / 重做：存牆、門窗、房間、家具、材質與比例，不存原圖（原圖很大且不會被編輯）
+  // 復原 / 重做：存牆、門窗、房間、家具、材質、裝修方案與比例，不存原圖（原圖很大且不會被編輯）
   function snapshot(plan) {
     return {
       furniture: (plan.furniture || []).map(f => ({ ...f, pos: f.pos.slice() })),
       materials: { ...(plan.materials || {}) },
+      schemes: plan.schemes ? JSON.parse(JSON.stringify(plan.schemes)) : null,
+      activeScheme: plan.activeScheme,
       walls: plan.walls.map(w => ({ ...w, a: w.a.slice(), b: w.b.slice() })),
       openings: (plan.openings || []).map(o => ({ ...o })),
       rooms: (plan.rooms || []).map(r => ({ ...r, polygon: r.polygon.map(p => p.slice()), label: r.label.slice() })),
@@ -270,6 +272,7 @@
     plan.rooms = snap.rooms.map(r => ({ ...r, polygon: r.polygon.map(p => p.slice()), label: r.label.slice() }));
     plan.furniture = snap.furniture.map(f => ({ ...f, pos: f.pos.slice() }));
     plan.materials = { ...snap.materials };
+    if (snap.schemes) { plan.schemes = JSON.parse(JSON.stringify(snap.schemes)); plan.activeScheme = snap.activeScheme; }
     if (plan.source && snap.pxPerMeter != null) plan.source.pxPerMeter = snap.pxPerMeter;
   }
 

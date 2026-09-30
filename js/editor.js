@@ -589,6 +589,15 @@
       commit();
     }
 
+    // 裝修方案的新增、切換、改名、刪除（fn 直接修改平面圖，回傳 false 表示沒有改變）
+    function schemeOp(fn) {
+      if (!plan) return;
+      history.record(plan);
+      if (fn(plan) === false) { history.past.pop(); return; }
+      dropStaleSelection();
+      commit();
+    }
+
     // 牆面顏色（整間房子一起換）
     function setWallPaint(id) {
       if (!plan) return;
@@ -630,7 +639,7 @@
     }
 
     return {
-      setPlan, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setWallPaint,
+      setPlan, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setWallPaint, schemeOp,
       setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, setRoomFloor, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,
