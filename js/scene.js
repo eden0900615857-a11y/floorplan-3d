@@ -265,8 +265,20 @@
       renderer.render(scene, camera);
     })();
 
+    // 目前畫面畫到一張新的 canvas（透明的背景填上底色）
+    function snapshot(bg) {
+      renderer.render(scene, camera);
+      const src = renderer.domElement, c = document.createElement('canvas');
+      c.width = src.width; c.height = src.height;
+      const g = c.getContext('2d');
+      g.fillStyle = bg || '#EDF0F3';
+      g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(src, 0, 0);
+      return c;
+    }
+
     return {
-      setPlan, resetCamera, setWalk,
+      setPlan, resetCamera, setWalk, snapshot,
       get walking() { return !!walk; },
       // 漫遊時的移動輸入：{forward, back, left, right, turnLeft, turnRight, fast}
       setInput(key, value) { if (walk) walk.input[key] = value; }

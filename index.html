@@ -87,10 +87,29 @@
       <div class="group">
         <span class="label">裝修</span>
         <div class="ctl">
+          <label for="scheme">裝修方案</label>
+          <select id="scheme"></select>
+        </div>
+        <div class="btnrow">
+          <button id="schemeCopy" type="button">複製成新方案</button>
+          <button id="schemeBlank" type="button">空白方案</button>
+        </div>
+        <div class="btnrow">
+          <label class="thick" for="schemeName">名稱 <input id="schemeName" type="text" maxlength="20"></label>
+          <button id="schemeDel" type="button">刪除</button>
+        </div>
+        <p class="hint">同一份平面圖可以做好幾種裝修（家具、地板、牆面顏色），切換方案比較看看。牆和門窗是所有方案共用的。</p>
+        <div class="ctl">
           <label for="wallPaint">牆面顏色</label>
           <select id="wallPaint"></select>
         </div>
         <p class="hint">家具：到「2D 校正」按「擺家具」，選好種類後點在圖上放下。放好可以拖曳移動、旋轉、修改尺寸，走進房子時會擋路。目前放了 <b id="furnCount" class="num">0</b> 件。</p>
+      </div>
+
+      <div class="group">
+        <span class="label">材料用量（目前方案）</span>
+        <dl class="stats" id="qty"></dl>
+        <p class="hint">粗估，給你和師傅討論用。地板是房間淨面積，叫料多抓 10% 損耗；油漆是房間四周牆面扣掉門窗，以一公升刷 10 m²、刷兩道估算。</p>
       </div>
 
       <div class="group">
@@ -112,7 +131,11 @@
       </div>
       <div class="view" id="view" role="tabpanel" aria-labelledby="tab3d">
         <span class="viewtag" id="viewTag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
-        <button type="button" class="walkbtn" id="walk" aria-pressed="false">走進房子</button>
+        <div class="viewbar">
+          <select id="schemeQuick" aria-label="切換裝修方案"></select>
+          <button type="button" id="shot">匯出圖片</button>
+          <button type="button" class="walkbtn" id="walk" aria-pressed="false">走進房子</button>
+        </div>
         <div class="walkpad" id="walkPad" hidden>
           <button type="button" data-key="forward" aria-label="前進" style="grid-area:f">▲</button>
           <button type="button" data-key="turnLeft" aria-label="左轉" style="grid-area:l">⟲</button>
@@ -190,6 +213,8 @@
 <script src="js/sample.js"></script>
 <script src="js/scene.js"></script>
 <script src="js/rooms.js"></script>
+<script src="js/schemes.js"></script>
+<script src="js/quantities.js"></script>
 <script src="js/edit.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/app.js"></script>

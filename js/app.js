@@ -93,6 +93,7 @@
   }
 
   function save() {
+    if (plan) FPSchemes.sync(plan);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(plan));
       localStorage.setItem(EDITED_KEY, edited ? '1' : '');
@@ -177,6 +178,7 @@
   function setPlan(p, stats) {
     plan = p;
     updateRooms();
+    FPSchemes.ensure(plan);
     lastStats = stats || {};
     editor.setPlan(p, src ? src.canvas : null);
     refresh();
@@ -217,10 +219,43 @@
       list.appendChild(li);
     }
     $('furnCount').textContent = (plan.furniture || []).length;
+    syncSchemes();
+    showQuantities();
     $('wallPaint').value = FPMaterials.wall(plan.materials && plan.materials.wall).id;
     // 手動修改後，覆蓋率就不再代表目前的牆
     $('sCover').textContent = !edited && lastStats.coverage != null ? Math.round(lastStats.coverage * 100) + '%' : '–';
     $('sTime').textContent = lastStats.ms != null ? lastStats.ms.toFixed(0) + ' ms' : '–';
+  }
+
+  // 裝修方案選單（側欄與 3D 畫面上各一個）
+  function syncSchemes() {
+    FPSchemes.ensure(plan);
+    for (const id of ['scheme', 'schemeQuick']) {
+      const sel = $(id);
+      sel.textContent = '';
+      for (const s of plan.schemes) {
+        const o = document.createElement('option');
+        o.value = s.id; o.textContent = s.name;
+        sel.appendChild(o);
+      }
+      sel.value = plan.activeScheme;
+    }
+    $('schemeQuick').hidden = plan.schemes.length < 2;
+    if (document.activeElement !== $('schemeName')) $('schemeName').value = FPSchemes.active(plan).name;
+    $('schemeDel').disabled = plan.schemes.length < 2;
+  }
+
+  function showQuantities() {
+    const q = FPQuantities.estimate(plan), dl = $('qty');
+    dl.textContent = '';
+    const row = (k, v) => {
+      const dt = document.createElement('dt'), dd = document.createElement('dd');
+      dt.textContent = k; dd.textContent = v;
+      dl.append(dt, dd);
+    };
+    for (const f of q.floors) row(f.name, f.area.toFixed(1) + ' m²（叫料 ' + f.order.toFixed(1) + '）');
+    row('牆面油漆（' + q.wall.name + '）', q.wall.area.toFixed(1) + ' m² · 約 ' + q.wall.liters + ' 公升');
+    row('家具', q.furniture.length ? q.furniture.map(f => f.name + (f.count > 1 ? ' ×' + f.count : '')).join('、') : '還沒有擺家具');
   }
 
   function floorSelect(value) {
@@ -503,6 +538,41 @@
   const setFurnSize = () => editor.setFurnitureSize(+$('furnW').value, +$('furnD').value);
   $('furnW').addEventListener('change', setFurnSize);
   $('furnD').addEventListener('change', setFurnSize);
+
+  // 裝修方案
+  const switchScheme = id => editor.schemeOp(p => (p.activeScheme === id ? false : !!FPSchemes.switchTo(p, id)));
+  $('scheme').addEventListener('change', () => switchScheme($('scheme').value));
+  $('schemeQuick').addEventListener('change', () => switchScheme($('schemeQuick').value));
+  $('schemeCopy').addEventListener('click', () => editor.schemeOp(p => { FPSchemes.add(p, false); }));
+  $('schemeBlank').addEventListener('click', () => editor.schemeOp(p => { FPSchemes.add(p, true); }));
+  $('schemeName').addEventListener('change', () => editor.schemeOp(p => {
+    const s = FPSchemes.active(p), name = $('schemeName').value.trim();
+    if (!name || name === s.name) return false;
+    FPSchemes.rename(p, s.id, name);
+  }));
+  $('schemeDel').addEventListener('click', () => {
+    const s = plan && FPSchemes.active(plan);
+    if (!s || plan.schemes.length < 2) return;
+    if (!confirm('要刪除「' + s.name + '」嗎？（可以用 2D 校正的「復原」救回來）')) return;
+    editor.schemeOp(p => FPSchemes.remove(p, s.id));
+  });
+
+  // 匯出目前 3D 畫面
+  $('shot').addEventListener('click', () => {
+    if (!plan) return;
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--scene').trim() || '#EDF0F3';
+    const name = 'floorplan-' + FPSchemes.active(plan).name.replace(/[\\/:*?"<>|\s]+/g, '') + '.png';
+    view3d.snapshot(bg).toBlob(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      note('已匯出 ' + name + '。');
+    }, 'image/png');
+  });
 
   // 牆面顏色
   for (const w of FPMaterials.WALLS) {

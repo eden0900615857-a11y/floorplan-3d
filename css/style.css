@@ -98,7 +98,11 @@ button.primary{background:var(--accent);color:var(--accent-ink);border-color:var
 .rooms .num{color:var(--ink)}
 .rooms .ping{color:var(--muted);font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;min-width:4.5em;text-align:right}
 .rooms .empty{display:block;color:var(--muted);font-size:12px}
-.walkbtn{position:absolute;top:10px;right:10px;background:var(--panel)}
+.viewbar{position:absolute;top:10px;right:10px;left:10px;display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px;pointer-events:none}
+.viewbar>*{pointer-events:auto}
+.viewbar button{background:var(--panel)}
+.viewbar select{font:13px var(--sans);padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);max-width:40%}
+.walkbtn{background:var(--panel)}
 .walkbtn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
 .walkpad{position:absolute;right:12px;bottom:12px;display:grid;grid-template-areas:". f ." "l b r";grid-template-columns:repeat(3,44px);grid-auto-rows:44px;gap:6px}
 .walkpad button{padding:0;background:var(--panel);font-size:18px;touch-action:none;user-select:none;-webkit-user-select:none}
