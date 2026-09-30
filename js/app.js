@@ -21,8 +21,14 @@
       const wall = sel && sel.kind === 'wall' ? sel.item : null;
       const op = sel && sel.kind === 'opening' ? sel.item : null;
       const room = sel && sel.kind === 'room' ? sel.item : null;
-      $('del').disabled = !(wall || op);
-      $('thickCtl').hidden = !!(op || room);
+      const furn = sel && sel.kind === 'furniture' ? sel.item : null;
+      $('del').disabled = !(wall || op || furn);
+      $('thickCtl').hidden = !!(op || room || furn);
+      $('furnCtl').hidden = !furn;
+      if (furn) {
+        $('furnName').textContent = FPFurniture.item(furn.model) ? FPFurniture.item(furn.model).name : furn.model;
+        $('furnW').value = furn.w; $('furnD').value = furn.d;
+      }
       $('roomCtl').hidden = !room;
       if (room) { $('roomName').value = room.name; $('roomFloor').value = FPMaterials.floor(room.floor).id; }
       $('thick').disabled = !wall;
@@ -35,6 +41,7 @@
     onHistory: h => { $('undo').disabled = !h.canUndo; $('redo').disabled = !h.canRedo; },
     onTool: t => {
       document.querySelectorAll('.tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
+      $('furnPick').hidden = t !== 'furniture';
       $('toolHint').textContent = TOOL_HINTS[t];
       if (t !== 'scale') $('scaleForm').hidden = true;
     },
@@ -50,10 +57,11 @@
   });
 
   const TOOL_HINTS = {
-    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳；點選房間可以改名。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
+    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳；家具可以拖曳，按 R 旋轉；點選房間可以改名。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
     wall: '在圖上拖曳畫出新牆。接近水平或垂直時會自動拉直（按住 Alt 可畫斜牆），靠近其他牆的端點會自動接上。',
     door: '點在牆上加一扇門（寬 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度，或按「換開門方向」。',
     window: '點在牆上加一扇窗（寬 1.2 公尺，窗台高 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度。',
+    furniture: '選好家具種類，在圖上點一下放下，按住不放可以直接拖到想要的位置。粗線那一邊是家具的正面。選取家具後按 R 旋轉 90 度。',
     scale: '在圖上點兩個點，例如尺寸標註的兩端，再輸入這段的實際長度，整張圖會照比例縮放。'
   };
 
@@ -208,6 +216,8 @@
       li.textContent = '還沒有封閉的房間。檢查外牆是否都有接起來。';
       list.appendChild(li);
     }
+    $('furnCount').textContent = (plan.furniture || []).length;
+    $('wallPaint').value = FPMaterials.wall(plan.materials && plan.materials.wall).id;
     // 手動修改後，覆蓋率就不再代表目前的牆
     $('sCover').textContent = !edited && lastStats.coverage != null ? Math.round(lastStats.coverage * 100) + '%' : '–';
     $('sTime').textContent = lastStats.ms != null ? lastStats.ms.toFixed(0) + ' ms' : '–';
@@ -475,6 +485,32 @@
     $('roomFloor').appendChild(o);
   }
   $('roomFloor').addEventListener('change', () => editor.setRoomFloor($('roomFloor').value));
+
+  // 家具：依分類列出家具庫
+  for (const cat of FPFurniture.CATS) {
+    const g = document.createElement('optgroup');
+    g.label = cat;
+    for (const it of FPFurniture.CATALOG.filter(c => c.cat === cat)) {
+      const o = document.createElement('option');
+      o.value = it.id; o.textContent = it.name + '（' + Math.round(it.w * 100) + '×' + Math.round(it.d * 100) + '）';
+      g.appendChild(o);
+    }
+    $('furnModel').appendChild(g);
+  }
+  $('furnModel').addEventListener('change', () => editor.setPlaceModel($('furnModel').value));
+  editor.setPlaceModel($('furnModel').value);
+  $('furnRot').addEventListener('click', () => editor.rotateFurniture(90));
+  const setFurnSize = () => editor.setFurnitureSize(+$('furnW').value, +$('furnD').value);
+  $('furnW').addEventListener('change', setFurnSize);
+  $('furnD').addEventListener('change', setFurnSize);
+
+  // 牆面顏色
+  for (const w of FPMaterials.WALLS) {
+    const o = document.createElement('option');
+    o.value = w.id; o.textContent = w.name;
+    $('wallPaint').appendChild(o);
+  }
+  $('wallPaint').addEventListener('change', () => editor.setWallPaint($('wallPaint').value));
 
   // 第一人稱漫遊：鍵盤 WASD／方向鍵，或畫面上的按鈕（手機）
   const VIEW_TAG = $('viewTag').textContent;

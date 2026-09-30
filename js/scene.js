@@ -24,6 +24,7 @@
     scene.add(sun, sun.target);
     // 走進室內時牆面大多背光，補一點均勻的環境光
     const ambient = new THREE.AmbientLight(0xffffff, 0);
+    const sky = new THREE.Color(0xdde7ef);
     scene.add(ambient);
 
     const box = new THREE.BoxGeometry(1, 1, 1);
@@ -33,6 +34,8 @@
     let walls = null, glass = null, floor = null, span = 0;
     let roomFloors = null;                 // 每個房間的地板（有材質）
     let ceilings = null;                   // 天花板，只在漫遊時顯示
+    let furniture = null;                  // 家具
+    const colorMats = new Map();           // 家具顏色 → 材質，重複使用
     const ceilingMat = new THREE.MeshStandardMaterial({ color: 0xf7f7f5, roughness: 0.95, side: THREE.DoubleSide });
     const floorMats = new Map();           // 材質 id → MeshStandardMaterial，重複使用
     let center = [0, 0];                   // 平面圖座標的中心，對應 3D 的原點
@@ -76,6 +79,7 @@
         ceilings.children.forEach(m => m.geometry.dispose());
         ceilings = null;
       }
+      if (furniture) { scene.remove(furniture); furniture = null; }
     }
 
     // plan：平面圖 JSON；image：原圖（Canvas 或 Image），有的話貼在地板上
@@ -149,15 +153,30 @@
       scene.add(roomFloors);
       ceilings = new THREE.Group();
       const top = Math.max(0, ...plan.walls.map(w => w.height));
-      for (const r of plan.rooms || []) {
-        const shape = new THREE.Shape(r.polygon.map(q => new THREE.Vector2(q[0] - cx, -(q[1] - cy))));
-        const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), ceilingMat);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.position.y = top;
-        ceilings.add(mesh);
-      }
+      // 整棟房子蓋一片天花板，門洞上方（不屬於任何房間）也蓋得到
+      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(bb.maxX - bb.minX, bb.maxY - bb.minY), ceilingMat);
+      ceil.rotation.x = -Math.PI / 2;
+      ceil.position.y = top;
+      ceilings.add(ceil);
       ceilings.visible = !!walk;
       scene.add(ceilings);
+
+      // 家具：每件由幾個方塊組成，共用同一個方塊幾何
+      furniture = new THREE.Group();
+      for (const f of plan.furniture || []) {
+        for (const b of FPFurniture.parts(f)) {
+          if (!colorMats.has(b.color)) colorMats.set(b.color, new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.75 }));
+          const mesh = new THREE.Mesh(box, colorMats.get(b.color));
+          mesh.position.set(b.x - cx, b.z0, b.y - cy);
+          mesh.rotation.y = -b.rotation * Math.PI / 180;
+          mesh.scale.set(Math.max(0.005, b.w), Math.max(0.005, b.z1 - b.z0), Math.max(0.005, b.d));
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          furniture.add(mesh);
+        }
+      }
+      scene.add(furniture);
+      wallMat.color.set(FPMaterials.wall(plan.materials && plan.materials.wall).color);
       if (walk) walk.solids = FPWalk.solids(plan);
 
       const newSpan = Math.max(fw, fh);
@@ -179,12 +198,15 @@
         camera.fov = 70;
         // 室內近看時陽光直射的牆面會過曝，把光線調柔和一點
         ambient.intensity = 0.15; hemi.intensity = 0.55; sun.intensity = 0.4;
+        // 從門窗看出去是天空色，不是網頁背景
+        scene.background = sky;
         if (ceilings) ceilings.visible = true;
       } else {
         walk = null;
         controls.enabled = true;
         camera.fov = 45;
         ambient.intensity = 0; hemi.intensity = 0.75; sun.intensity = 0.75;
+        scene.background = null;
         if (ceilings) ceilings.visible = false;
         resetCamera();
       }

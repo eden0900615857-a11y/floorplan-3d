@@ -1,4 +1,4 @@
-// 材質清單：地板材質的名稱與外觀。貼圖在瀏覽器裡用程式畫出來（不需要下載圖檔），
+// 材質清單：地板材質與牆面顏色的名稱與外觀。貼圖在瀏覽器裡用程式畫出來（不需要下載圖檔），
 // size 是一張貼圖代表的實際尺寸（公尺），3D 會照這個尺寸重複鋪滿。
 (function (root, factory) {
   const api = factory();
@@ -15,8 +15,23 @@
   ];
   const DEFAULT_FLOOR = 'oak-light';
 
+  // 牆面油漆顏色（平面圖 JSON 的 materials.wall）
+  const WALLS = [
+    { id: 'paint-white', name: '白色', color: '#EEF1F4' },
+    { id: 'paint-warm', name: '暖白', color: '#F1EADF' },
+    { id: 'paint-greige', name: '奶茶灰', color: '#D8CFC4' },
+    { id: 'paint-sage', name: '灰綠', color: '#C5CFBD' },
+    { id: 'paint-blue', name: '霧藍', color: '#BFCBD6' },
+    { id: 'paint-charcoal', name: '深灰', color: '#6F737A' }
+  ];
+  const DEFAULT_WALL = 'paint-white';
+
   function floor(id) {
     return FLOORS.find(f => f.id === id) || FLOORS.find(f => f.id === DEFAULT_FLOOR);
+  }
+
+  function wall(id) {
+    return WALLS.find(w => w.id === id) || WALLS.find(w => w.id === DEFAULT_WALL);
   }
 
   // 固定亂數，讓同一種材質每次畫出來都一樣
@@ -87,5 +102,5 @@
     }
   }
 
-  return { FLOORS, DEFAULT_FLOOR, floor, draw };
+  return { FLOORS, DEFAULT_FLOOR, WALLS, DEFAULT_WALL, floor, wall, draw };
 });

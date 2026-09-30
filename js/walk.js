@@ -11,7 +11,7 @@
   const SPEED = 1.4;       // 公尺／秒，按住 Shift 加倍
   const TURN = 1.8;        // 弧度／秒（方向鍵左右轉）
 
-  // 會擋路的牆段：從地面開始的牆段（門洞上方的不算）
+  // 會擋路的牆段：從地面開始的牆段（門洞上方的不算），加上家具
   function solids(plan) {
     const out = [];
     for (const w of plan.walls) {
@@ -22,6 +22,12 @@
         if (pc.y0 > 0.5) continue;
         out.push({ ax: w.a[0], ay: w.a[1], ux, uy, s0: pc.s0, s1: pc.s1, h: w.thickness / 2 });
       }
+    }
+    // 家具也會擋路
+    const F = typeof FPFurniture !== 'undefined' ? FPFurniture : (typeof require === 'function' ? require('./furniture.js') : null);
+    for (const f of plan.furniture || []) {
+      const s = F && F.solid(f);
+      if (s) out.push(s);
     }
     return out;
   }
