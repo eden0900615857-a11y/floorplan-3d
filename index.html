@@ -85,6 +85,15 @@
       </div>
 
       <div class="group">
+        <span class="label">裝修</span>
+        <div class="ctl">
+          <label for="wallPaint">牆面顏色</label>
+          <select id="wallPaint"></select>
+        </div>
+        <p class="hint">家具：到「2D 校正」按「擺家具」，選好種類後點在圖上放下。放好可以拖曳移動、旋轉、修改尺寸，走進房子時會擋路。目前放了 <b id="furnCount" class="num">0</b> 件。</p>
+      </div>
+
+      <div class="group">
         <span class="label">專案檔</span>
         <div class="btnrow">
           <button id="download" type="button">下載 JSON</button>
@@ -118,6 +127,7 @@
             <button type="button" class="tool" data-tool="wall" aria-pressed="false">畫牆</button>
             <button type="button" class="tool" data-tool="door" aria-pressed="false">加門</button>
             <button type="button" class="tool" data-tool="window" aria-pressed="false">加窗</button>
+            <button type="button" class="tool" data-tool="furniture" aria-pressed="false">擺家具</button>
             <button type="button" class="tool" data-tool="scale" aria-pressed="false">比例尺</button>
           </div>
           <div class="btnrow">
@@ -129,6 +139,13 @@
           <label class="thick" for="thick" id="thickCtl">牆厚 <input id="thick" type="number" min="0.02" max="1" step="0.01" disabled> m</label>
           <label class="thick" for="openW" id="openWCtl" hidden>開口寬 <input id="openW" type="number" min="0.3" max="5" step="0.05"> m</label>
           <button type="button" id="flip" hidden>換開門方向</button>
+          <label class="thick" for="furnModel" id="furnPick" hidden>家具 <select id="furnModel"></select></label>
+          <span class="thick" id="furnCtl" hidden>
+            <b id="furnName"></b>
+            <label class="thick" for="furnW">寬 <input id="furnW" type="number" min="0.1" max="6" step="0.05"> m</label>
+            <label class="thick" for="furnD">深 <input id="furnD" type="number" min="0.1" max="6" step="0.05"> m</label>
+            <button type="button" id="furnRot">旋轉 90°</button>
+          </span>
           <span class="thick" id="roomCtl" hidden>
             <label class="thick" for="roomName">房名 <input id="roomName" type="text" maxlength="20"></label>
             <label class="thick" for="roomFloor">地板 <select id="roomFloor"></select></label>
@@ -168,6 +185,7 @@
 <script src="js/openings.js"></script>
 <script src="js/plan.js"></script>
 <script src="js/materials.js"></script>
+<script src="js/furniture.js"></script>
 <script src="js/walk.js"></script>
 <script src="js/sample.js"></script>
 <script src="js/scene.js"></script>

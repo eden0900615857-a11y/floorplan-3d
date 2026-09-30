@@ -1,4 +1,4 @@
-// 平面圖編輯操作：選取判定、端點吸附、拉直、新增 / 刪除牆與門窗、比例尺換算、復原與重做。
+// 平面圖編輯操作：選取判定、端點吸附、拉直、新增 / 刪除牆、門窗與家具、比例尺換算、復原與重做。
 // 只操作平面圖 JSON，不碰畫面，方便測試。座標單位一律公尺。
 (function (root, factory) {
   const api = factory();
@@ -7,6 +7,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   const mm = v => Math.round(v * 1000) / 1000;
   const FPPlanRef = () => (typeof FPPlan !== 'undefined' ? FPPlan : require('./plan.js'));
+  const FPFurnitureRef = () => (typeof FPFurniture !== 'undefined' ? FPFurniture : require('./furniture.js'));
   const roundPt = p => [mm(p[0]), mm(p[1])];
 
   function findWall(plan, id) {
@@ -15,7 +16,7 @@
 
   function nextId(plan, prefix) {
     prefix = prefix || 'w';
-    const list = prefix === 'w' ? plan.walls : (plan.openings || []);
+    const list = prefix === 'w' ? plan.walls : prefix === 'f' ? (plan.furniture || []) : (plan.openings || []);
     const re = new RegExp('^' + prefix + '(\\d+)$');
     let max = 0;
     for (const x of list) {
@@ -93,6 +94,48 @@
     if (o.swing === 'left') o.swing = 'right';
     else { o.swing = 'left'; o.hinge = o.hinge === 'a' ? 'b' : 'a'; }
     return o;
+  }
+
+  // 家具：尺寸取家具庫的預設值，角度 0 度（正面朝下）
+  function findFurniture(plan, id) {
+    return (plan.furniture || []).find(f => f.id === id) || null;
+  }
+
+  function addFurniture(plan, model, pos, rotation) {
+    const def = FPFurnitureRef().item(model);
+    if (!def) return null;
+    if (!plan.furniture) plan.furniture = [];
+    const f = { id: nextId(plan, 'f'), model, pos: roundPt(pos), rotation: normDeg(rotation || 0), w: def.w, d: def.d };
+    plan.furniture.push(f);
+    return f;
+  }
+
+  function deleteFurniture(plan, id) {
+    const i = (plan.furniture || []).findIndex(f => f.id === id);
+    if (i < 0) return false;
+    plan.furniture.splice(i, 1);
+    return true;
+  }
+
+  function moveFurniture(plan, id, pos) {
+    const f = findFurniture(plan, id);
+    if (f) f.pos = roundPt(pos);
+    return f;
+  }
+
+  const normDeg = a => ((Math.round(a) % 360) + 360) % 360;
+
+  function rotateFurniture(plan, id, deg) {
+    const f = findFurniture(plan, id);
+    if (f) f.rotation = normDeg((f.rotation || 0) + deg);
+    return f;
+  }
+
+  function setFurnitureSize(plan, id, w, d) {
+    const f = findFurniture(plan, id);
+    if (!f || !(w > 0) || !(d > 0)) return null;
+    f.w = mm(w); f.d = mm(d);
+    return f;
   }
 
   // 點到牆上的哪個位置（沿牆距離，公尺）
@@ -198,6 +241,8 @@
       r.label = roundPt([r.label[0] * k, r.label[1] * k]);
       r.area = Math.round(r.area * k * k * 100) / 100;
     }
+    // 家具只移動位置，尺寸是實際尺寸，不跟著縮放
+    for (const f of plan.furniture || []) f.pos = roundPt([f.pos[0] * k, f.pos[1] * k]);
     if (plan.source && plan.source.pxPerMeter) plan.source.pxPerMeter = Math.round(plan.source.pxPerMeter / k * 10000) / 10000;
     return plan;
   }
@@ -208,9 +253,11 @@
     return real / measured;
   }
 
-  // 復原 / 重做：只存牆與比例，不存原圖（原圖很大且不會被編輯）
+  // 復原 / 重做：存牆、門窗、房間、家具、材質與比例，不存原圖（原圖很大且不會被編輯）
   function snapshot(plan) {
     return {
+      furniture: (plan.furniture || []).map(f => ({ ...f, pos: f.pos.slice() })),
+      materials: { ...(plan.materials || {}) },
       walls: plan.walls.map(w => ({ ...w, a: w.a.slice(), b: w.b.slice() })),
       openings: (plan.openings || []).map(o => ({ ...o })),
       rooms: (plan.rooms || []).map(r => ({ ...r, polygon: r.polygon.map(p => p.slice()), label: r.label.slice() })),
@@ -221,6 +268,8 @@
     plan.walls = snap.walls.map(w => ({ ...w, a: w.a.slice(), b: w.b.slice() }));
     plan.openings = snap.openings.map(o => ({ ...o }));
     plan.rooms = snap.rooms.map(r => ({ ...r, polygon: r.polygon.map(p => p.slice()), label: r.label.slice() }));
+    plan.furniture = snap.furniture.map(f => ({ ...f, pos: f.pos.slice() }));
+    plan.materials = { ...snap.materials };
     if (plan.source && snap.pxPerMeter != null) plan.source.pxPerMeter = snap.pxPerMeter;
   }
 
@@ -251,6 +300,7 @@
 
   return {
     findWall, nextId, addWall, deleteWall, distToSegment, hitTest,
+    findFurniture, addFurniture, deleteFurniture, moveFurniture, rotateFurniture, setFurnitureSize,
     findOpening, addOpening, deleteOpening, moveOpening, setOpeningWidth, flipDoor, projectOnWall, hitOpening,
     snapToEndpoint, snapOrtho, moveEndpoint, moveWall, rescale, scaleFactor, History
   };

@@ -1,5 +1,5 @@
 // 2D 校正編輯器：在原圖上直接修正牆。
-// 工具：選取（移動牆、拖曳端點、沿牆移動門窗）、畫牆、加門、加窗、比例尺。支援縮放、平移、復原與重做。
+// 工具：選取（移動牆、拖曳端點、沿牆移動門窗、移動家具）、畫牆、加門、加窗、擺家具、比例尺。支援縮放、平移、復原與重做。
 // 所有修改都寫回同一份平面圖 JSON，每完成一個動作呼叫 opts.onCommit()。
 (function (root) {
   const SNAP_PX = 10;         // 吸附距離（螢幕像素）
@@ -20,7 +20,10 @@
     let plan = null, image = null, tool = 'select';
     let selected = null;      // 選取中的牆 id
     let selOpening = null;    // 選取中的門窗 id
-    let selRoom = null;       // 選取中的房間 id（牆、門窗、房間同時只會選一個）
+    let selRoom = null;       // 選取中的房間 id
+    let selFurn = null;       // 選取中的家具 id（牆、門窗、房間、家具同時只會選一個）
+    let placeModel = 'sofa3'; // 擺家具工具要放的家具種類
+    let hover = null;         // 擺家具工具：游標位置，用來預覽
     let view = { s: 50, ox: 0, oy: 0 };   // 螢幕座標 = 公尺 × s + o
     let drag = null, draft = null, scalePts = [], cw = 0, ch = 0, spaceDown = false;
     let userMoved = false;   // 使用者自己縮放或平移過，就不再自動調整視野
@@ -108,6 +111,32 @@
       ctx.beginPath(); ctx.moveTo(hinge[0], hinge[1]); ctx.lineTo(leaf[0], leaf[1]); ctx.stroke();
     }
 
+    // 家具：外框加淡色底，正面那一邊畫粗線，放得下的話寫上名稱
+    function drawFurniture(f, color, alpha) {
+      const pts = FPFurniture.footprint(f).map(toScreen);
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      pts.forEach((q, n) => n ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]));
+      ctx.closePath();
+      ctx.fillStyle = css('--panel');
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(pts[2][0], pts[2][1]); ctx.lineTo(pts[3][0], pts[3][1]); ctx.stroke();
+      const def = FPFurniture.item(f.model);
+      if (def && Math.min(f.w, f.d) * view.s > 18 && Math.max(f.w, f.d) * view.s > 44) {
+        const c = toScreen(f.pos);
+        ctx.fillStyle = color;
+        ctx.font = '11px "Noto Sans TC", system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(def.name, c[0], c[1]);
+      }
+      ctx.globalAlpha = 1;
+    }
+
     function label(text, x, y) {
       ctx.font = '12px "IBM Plex Mono", ui-monospace, monospace';
       const tw = ctx.measureText(text).width;
@@ -163,6 +192,11 @@
         ctx.globalAlpha = 1;
         for (const sp of spans) drawOpening(w, sp, sp.o.id === selOpening ? sel : ink);
       }
+      for (const f of plan.furniture || []) drawFurniture(f, f.id === selFurn ? sel : ink, 1);
+      if (tool === 'furniture' && hover && !drag) {
+        const def = FPFurniture.item(placeModel);
+        if (def) drawFurniture({ model: placeModel, pos: hover, rotation: 0, w: def.w, d: def.d }, sel, 0.6);
+      }
       for (const r of plan.rooms || []) {
         const q = toScreen(r.label);
         const sub = r.area.toFixed(1) + ' m² · ' + FPRooms.toPing(r.area).toFixed(1) + ' 坪';
@@ -183,6 +217,14 @@
         ctx.fillText(sub, q[0], q[1] + 9);
       }
       const so = selOpening && FPEdit.findOpening(plan, selOpening);
+      const sf = selFurn && FPEdit.findFurniture(plan, selFurn);
+      if (sf) {
+        // 選取中的家具：四個角畫小方塊
+        for (const q of FPFurniture.footprint(sf).map(toScreen)) {
+          ctx.fillStyle = '#fff'; ctx.fillRect(q[0] - 4, q[1] - 4, 8, 8);
+          ctx.strokeStyle = sel; ctx.lineWidth = 2; ctx.strokeRect(q[0] - 4, q[1] - 4, 8, 8);
+        }
+      }
       if (so && drag && drag.type === 'opening') {
         const w = FPEdit.findWall(plan, so.wall), L = FPPlan.wallLength(w);
         const c = toScreen([w.a[0] + (w.b[0] - w.a[0]) * so.offset / L, w.a[1] + (w.b[1] - w.a[1]) * so.offset / L]);
@@ -244,6 +286,7 @@
       selected = kind === 'wall' ? id : null;
       selOpening = kind === 'opening' ? id : null;
       selRoom = kind === 'room' ? id : null;
+      selFurn = kind === 'furniture' ? id : null;
     }
     const findRoom = id => (plan.rooms || []).find(r => r.id === id) || null;
 
@@ -252,7 +295,8 @@
         const w = selected && FPEdit.findWall(plan, selected);
         const o = selOpening && FPEdit.findOpening(plan, selOpening);
         const r = selRoom && findRoom(selRoom);
-        opts.onSelect(w ? { kind: 'wall', item: w } : o ? { kind: 'opening', item: o } : r ? { kind: 'room', item: r } : null);
+        const f = selFurn && FPEdit.findFurniture(plan, selFurn);
+        opts.onSelect(w ? { kind: 'wall', item: w } : o ? { kind: 'opening', item: o } : r ? { kind: 'room', item: r } : f ? { kind: 'furniture', item: f } : null);
       }
       if (opts.onHistory) opts.onHistory({ canUndo: history.canUndo, canRedo: history.canRedo });
     }
@@ -291,6 +335,16 @@
           opts.onScaleMeasured(Math.hypot(scalePts[1][0] - scalePts[0][0], scalePts[1][1] - scalePts[0][1]));
         }
         draw();
+      } else if (tool === 'furniture') {
+        // 點一下放一件家具，放好就切回選取，按住不放可以直接拖到想要的位置
+        history.record(plan);
+        const f = FPEdit.addFurniture(plan, placeModel, p, 0);
+        if (!f) return;
+        select('furniture', f.id);
+        hover = null;
+        setTool('select');
+        drag = { type: 'furn', id: f.id, grab: [0, 0], start: p, recorded: true, placed: true };
+        commit();
       } else if (tool === 'door' || tool === 'window') {
         // 點在牆上，就在那個位置加一扇門或一扇窗
         const hit = FPEdit.hitTest(plan, p, tol(), null);
@@ -303,12 +357,17 @@
       } else {
         const hit = FPEdit.hitTest(plan, p, tol(), selected);
         const ho = !(hit && hit.part !== 'body') && FPEdit.hitOpening(plan, p, tol());
+        const hf = !(hit && hit.part !== 'body') && !ho && FPFurniture.hit(plan, p, 0);
         if (hit && hit.part !== 'body') {
           drag = { type: 'end', id: hit.id, part: hit.part, recorded: false };
         } else if (ho) {
           select('opening', ho.id);
           const w = FPEdit.findWall(plan, ho.wall);
           drag = { type: 'opening', id: ho.id, grab: FPEdit.projectOnWall(w, p) - ho.offset, start: p, recorded: false };
+          emit();
+        } else if (hf) {
+          select('furniture', hf.id);
+          drag = { type: 'furn', id: hf.id, grab: [p[0] - hf.pos[0], p[1] - hf.pos[1]], start: p, recorded: false };
           emit();
         } else if (hit) {
           select('wall', hit.id);
@@ -318,7 +377,7 @@
         } else {
           // 點在房間裡：選取房間（可以改名），同時也能拖曳平移
           const room = FPRooms.hitRoom(plan, p);
-          if ((room ? room.id : null) !== selRoom || selected || selOpening) { select(room ? 'room' : null, room && room.id); emit(); }
+          if ((room ? room.id : null) !== selRoom || selected || selOpening || selFurn) { select(room ? 'room' : null, room && room.id); emit(); }
           drag = { type: 'pan', sx: e.clientX, sy: e.clientY, ox: view.ox, oy: view.oy };
         }
         draw();
@@ -331,7 +390,11 @@
       if (!drag) {
         if (tool === 'select') {
           const hit = FPEdit.hitTest(plan, p, tol(), selected);
-          canvas.style.cursor = !hit ? 'grab' : hit.part === 'body' ? 'move' : 'crosshair';
+          canvas.style.cursor = !hit ? (FPFurniture.hit(plan, p, 0) ? 'move' : 'grab') : hit.part === 'body' ? 'move' : 'crosshair';
+        } else if (tool === 'furniture') {
+          hover = p;
+          canvas.style.cursor = 'copy';
+          draw();
         } else if (tool === 'door' || tool === 'window') {
           canvas.style.cursor = FPEdit.hitTest(plan, p, tol(), null) ? 'copy' : 'not-allowed';
         } else {
@@ -364,6 +427,13 @@
         }
         const o = FPEdit.findOpening(plan, drag.id);
         FPEdit.moveOpening(plan, drag.id, FPEdit.projectOnWall(FPEdit.findWall(plan, o.wall), p) - drag.grab);
+      } else if (drag.type === 'furn') {
+        if (!drag.recorded) {
+          if (Math.hypot(p[0] - drag.start[0], p[1] - drag.start[1]) < tol() / 2) return;
+          history.record(plan);
+          drag.recorded = true;
+        }
+        FPEdit.moveFurniture(plan, drag.id, [p[0] - drag.grab[0], p[1] - drag.grab[1]]);
       } else if (drag.type === 'draw') {
         draft.b = snapped(p, draft.a, null, e.altKey);
       }
@@ -374,7 +444,7 @@
       if (!drag) return;
       const d = drag;
       drag = null;
-      if ((d.type === 'end' || d.type === 'move' || d.type === 'opening') && d.recorded) {
+      if ((d.type === 'end' || d.type === 'move' || d.type === 'opening' || d.type === 'furn') && d.recorded) {
         commit();
       } else if (d.type === 'draw') {
         const len = Math.hypot(draft.b[0] - draft.a[0], draft.b[1] - draft.a[1]);
@@ -390,6 +460,7 @@
       }
       draw();
     }
+    canvas.addEventListener('pointerleave', () => { if (hover) { hover = null; draw(); } });
     canvas.addEventListener('pointerup', endDrag);
     canvas.addEventListener('pointercancel', endDrag);
 
@@ -418,6 +489,8 @@
       else if (!mod && e.key.toLowerCase() === 'w') setTool('wall');
       else if (!mod && e.key.toLowerCase() === 'd') setTool('door');
       else if (!mod && e.key.toLowerCase() === 'n') setTool('window');
+      else if (!mod && e.key.toLowerCase() === 'f') setTool('furniture');
+      else if (!mod && e.key.toLowerCase() === 'r' && selFurn) rotateFurniture(e.shiftKey ? -90 : 90);
     });
     canvas.addEventListener('keyup', e => { if (e.key === ' ') spaceDown = false; });
 
@@ -425,23 +498,25 @@
       draft = null;
       scalePts = [];
       if (opts.onScaleMeasured) opts.onScaleMeasured(null);
-      if (selected || selOpening || selRoom) { select(null); emit(); }
+      if (selected || selOpening || selRoom || selFurn) { select(null); emit(); }
       draw();
     }
 
     function setTool(t) {
       tool = t;
       draft = null;
+      if (t !== 'furniture') hover = null;
       if (t !== 'scale' && scalePts.length) { scalePts = []; if (opts.onScaleMeasured) opts.onScaleMeasured(null); }
       if (opts.onTool) opts.onTool(t);
       draw();
     }
 
     function deleteSelected() {
-      if (!selected && !selOpening) return;
+      if (!selected && !selOpening && !selFurn) return;
       history.record(plan);
       if (selected) FPEdit.deleteWall(plan, selected);
-      else FPEdit.deleteOpening(plan, selOpening);
+      else if (selOpening) FPEdit.deleteOpening(plan, selOpening);
+      else FPEdit.deleteFurniture(plan, selFurn);
       select(null);
       commit();
     }
@@ -450,6 +525,7 @@
       if (selected && !FPEdit.findWall(plan, selected)) selected = null;
       if (selOpening && !FPEdit.findOpening(plan, selOpening)) selOpening = null;
       if (selRoom && !findRoom(selRoom)) selRoom = null;
+      if (selFurn && !FPEdit.findFurniture(plan, selFurn)) selFurn = null;
     }
 
     function undo() {
@@ -498,6 +574,31 @@
       commit();
     }
 
+    function rotateFurniture(deg) {
+      if (!selFurn || !FPEdit.findFurniture(plan, selFurn)) return;
+      history.record(plan);
+      FPEdit.rotateFurniture(plan, selFurn, deg);
+      commit();
+    }
+
+    function setFurnitureSize(w, d) {
+      const f = selFurn && FPEdit.findFurniture(plan, selFurn);
+      if (!f || !(w > 0) || !(d > 0) || (f.w === w && f.d === d)) return;
+      history.record(plan);
+      FPEdit.setFurnitureSize(plan, f.id, w, d);
+      commit();
+    }
+
+    // 牆面顏色（整間房子一起換）
+    function setWallPaint(id) {
+      if (!plan) return;
+      const cur = (plan.materials && plan.materials.wall) || FPMaterials.DEFAULT_WALL;
+      if (cur === id) return;
+      history.record(plan);
+      plan.materials = { ...(plan.materials || {}), wall: id };
+      commit();
+    }
+
     function flipDoor() {
       const o = selOpening && FPEdit.findOpening(plan, selOpening);
       if (!o || o.type !== 'door') return;
@@ -529,7 +630,8 @@
     }
 
     return {
-      setPlan, setTool, deleteSelected, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, setRoomFloor, rescale, cancel,
+      setPlan, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setWallPaint,
+      setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, setRoomFloor, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,
       get tool() { return tool; }

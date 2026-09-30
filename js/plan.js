@@ -93,6 +93,13 @@
       if (!r || typeof r.name !== 'string') errors.push(name + '：缺少房名');
       if (!r || !isPoint(r.label)) errors.push(name + '：label 必須是 [x, y] 座標');
     });
+    if (plan.furniture != null && !Array.isArray(plan.furniture)) return errors.concat('furniture 必須是陣列');
+    (plan.furniture || []).forEach((f, i) => {
+      const name = f && f.id ? f.id : '第 ' + (i + 1) + ' 件家具';
+      if (!f || typeof f.model !== 'string') errors.push(name + '：缺少家具種類 model');
+      if (!f || !isPoint(f.pos)) errors.push(name + '：pos 必須是 [x, y] 座標');
+      if (!(f && f.w > 0 && f.d > 0)) errors.push(name + '：寬、深必須大於 0');
+    });
     (plan.openings || []).forEach((o, i) => {
       const name = o && o.id ? o.id : '第 ' + (i + 1) + ' 個門窗';
       if (!o || !OPENING_DEFAULTS[o.type]) { errors.push(name + '：type 必須是 door 或 window'); return; }

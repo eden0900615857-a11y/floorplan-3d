@@ -106,3 +106,4 @@ button.primary{background:var(--accent);color:var(--accent-ink);border-color:var
 .rooms select{grid-column:1/-1;font:12px var(--sans);padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);margin-bottom:4px}
 @media (max-width:820px){.view.walking .viewtag{display:none}}
 .view.walking .viewtag{background:color-mix(in srgb,var(--panel,#fff) 85%,transparent);color:var(--ink);padding:3px 8px;border-radius:6px}
+.ctl select{grid-column:1/-1;font:13px var(--sans);padding:5px 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
