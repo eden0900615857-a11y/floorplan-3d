@@ -41,6 +41,10 @@
         </div>
         <p class="hint">比這個寬度細的線條（文字、尺寸線、家具輪廓）會被忽略。牆沒出現就調小，雜訊太多就調大。</p>
         <label class="check"><input id="invert" type="checkbox">反相（深色底、淺色線的藍圖）</label>
+        <div class="redetect" id="redetectBox" hidden>
+          <p class="note">你已經手動修改過牆。重新辨識會用新的設定產生牆，並取代這些修改。</p>
+          <button id="redetect" type="button">重新辨識</button>
+        </div>
       </div>
 
       <div class="group">
@@ -49,6 +53,7 @@
           <label for="planW">圖面實際寬度（公尺）</label>
           <input id="planW" type="number" min="1" max="200" step="0.1" value="13.6">
         </div>
+        <p class="hint">修改寬度會等比例縮放整張圖。更準的做法是到「2D 校正」用比例尺量一段已知長度。</p>
         <div class="ctl">
           <label for="wallH">牆高</label><output id="wallHOut"></output>
           <input id="wallH" type="range" min="1.8" max="4.5" step="0.1" value="2.8">
@@ -75,12 +80,43 @@
           <label class="filebtn secondary">開啟 JSON<input id="openJson" type="file" accept=".json,application/json"></label>
         </div>
         <p class="note" id="fileNote" role="status"></p>
-        <p class="hint">結果會自動保存在這台電腦的瀏覽器裡，下次打開會接著用。調整牆線辨識的設定會重新辨識並取代目前的牆。</p>
+        <p class="hint">結果和手動修改會自動保存在這台電腦的瀏覽器裡，下次打開會接著用。</p>
       </div>
     </aside>
 
-    <div class="view" id="view">
-      <span class="viewtag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
+    <div class="stage" id="stage">
+      <div class="tabs" role="tablist" aria-label="檢視方式">
+        <button type="button" role="tab" id="tab3d" aria-selected="true" aria-controls="view">3D 檢視</button>
+        <button type="button" role="tab" id="tab2d" aria-selected="false" aria-controls="editor">2D 校正</button>
+      </div>
+      <div class="view" id="view" role="tabpanel" aria-labelledby="tab3d">
+        <span class="viewtag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
+      </div>
+      <div class="editor" id="editor" role="tabpanel" aria-labelledby="tab2d" hidden>
+        <div class="toolbar">
+          <div class="seg" role="group" aria-label="工具">
+            <button type="button" class="tool" data-tool="select" aria-pressed="true">選取</button>
+            <button type="button" class="tool" data-tool="wall" aria-pressed="false">畫牆</button>
+            <button type="button" class="tool" data-tool="scale" aria-pressed="false">比例尺</button>
+          </div>
+          <div class="btnrow">
+            <button type="button" id="undo" disabled>復原</button>
+            <button type="button" id="redo" disabled>重做</button>
+            <button type="button" id="del" disabled>刪除牆</button>
+            <button type="button" id="fit">顯示全圖</button>
+          </div>
+          <label class="thick" for="thick">牆厚 <input id="thick" type="number" min="0.02" max="1" step="0.01" disabled> m</label>
+        </div>
+        <div class="editcanvas" id="editCanvas"></div>
+        <form class="scaleform" id="scaleForm" hidden>
+          <span>兩點距離 <b id="scaleMeasured" class="num"></b>，實際長度</span>
+          <input id="scaleLen" type="number" min="0.01" step="0.01" required aria-label="實際長度（公尺）">
+          <span>公尺</span>
+          <button type="submit" class="primary">套用比例</button>
+          <button type="button" id="scaleCancel">取消</button>
+        </form>
+        <p class="toolhint" id="toolHint" role="status"></p>
+      </div>
       <div class="drop" id="drop" hidden>放開以載入平面圖</div>
     </div>
   </div>
@@ -93,6 +129,8 @@
 <script src="js/plan.js"></script>
 <script src="js/sample.js"></script>
 <script src="js/scene.js"></script>
+<script src="js/edit.js"></script>
+<script src="js/editor.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
