@@ -1,4 +1,5 @@
 // 3D 場景：只根據平面圖 JSON 產生牆與地板（需要全域 THREE 與 THREE.OrbitControls）。
+// 兩種看法：從上方環繞檢視（OrbitControls），或第一人稱走進房子（FPWalk 負責移動與碰撞）。
 (function (root) {
   function createScene(container) {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -14,18 +15,46 @@
     controls.enableDamping = true;
     controls.maxPolarAngle = Math.PI * 0.495;
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x8b98a6, 0.75));
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x8b98a6, 0.75);
+    scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 0.75);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.bias = -0.0005;
     scene.add(sun, sun.target);
+    // 走進室內時牆面大多背光，補一點均勻的環境光
+    const ambient = new THREE.AmbientLight(0xffffff, 0);
+    scene.add(ambient);
 
     const box = new THREE.BoxGeometry(1, 1, 1);
     box.translate(0, 0.5, 0);
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xeef1f4, roughness: 0.85 });
     const glassMat = new THREE.MeshStandardMaterial({ color: 0x9cc7e8, roughness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
     let walls = null, glass = null, floor = null, span = 0;
+    let roomFloors = null;                 // 每個房間的地板（有材質）
+    let ceilings = null;                   // 天花板，只在漫遊時顯示
+    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0xf7f7f5, roughness: 0.95, side: THREE.DoubleSide });
+    const floorMats = new Map();           // 材質 id → MeshStandardMaterial，重複使用
+    let center = [0, 0];                   // 平面圖座標的中心，對應 3D 的原點
+    let walk = null;                       // 漫遊中：{state, solids, input}
+    let plan = null;
+
+    // 地板材質：貼圖一張代表 size 公尺，房間地板的 UV 單位是公尺
+    function floorMaterial(id) {
+      const f = FPMaterials.floor(id);
+      if (floorMats.has(f.id)) return floorMats.get(f.id);
+      const c = document.createElement('canvas');
+      c.width = c.height = 512;
+      FPMaterials.draw(c.getContext('2d'), f, 512);
+      const tex = new THREE.CanvasTexture(c);
+      tex.encoding = THREE.sRGBEncoding;
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(1 / f.size, 1 / f.size);
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: f.id === 'marble' || f.id === 'tile-white' ? 0.45 : 0.8 });
+      floorMats.set(f.id, mat);
+      return mat;
+    }
 
     function clear() {
       if (walls) { scene.remove(walls); walls.dispose(); walls = null; }
@@ -37,13 +66,25 @@
         floor.material.dispose();
         floor = null;
       }
+      if (roomFloors) {
+        scene.remove(roomFloors);
+        roomFloors.children.forEach(m => m.geometry.dispose());
+        roomFloors = null;
+      }
+      if (ceilings) {
+        scene.remove(ceilings);
+        ceilings.children.forEach(m => m.geometry.dispose());
+        ceilings = null;
+      }
     }
 
     // plan：平面圖 JSON；image：原圖（Canvas 或 Image），有的話貼在地板上
-    function setPlan(plan, image) {
+    function setPlan(next, image) {
+      plan = next;
       clear();
       const bb = FPPlan.bounds(plan);
       const cx = (bb.minX + bb.maxX) / 2, cy = (bb.minY + bb.maxY) / 2;
+      center = [cx, cy];
       // 每面牆依門窗切成數個方塊；窗戶另外放一片玻璃
       const boxes = [], panes = [];
       for (const w of plan.walls) {
@@ -95,6 +136,30 @@
       floor.receiveShadow = true;
       scene.add(floor);
 
+      // 房間地板：平面圖的 (x, y) 對應 3D 的 (x, 0, y)，稍微高於原圖，避免互相閃爍
+      roomFloors = new THREE.Group();
+      for (const r of plan.rooms || []) {
+        const shape = new THREE.Shape(r.polygon.map(q => new THREE.Vector2(q[0] - cx, -(q[1] - cy))));
+        const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMaterial(r.floor));
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.y = 0.002;
+        mesh.receiveShadow = true;
+        roomFloors.add(mesh);
+      }
+      scene.add(roomFloors);
+      ceilings = new THREE.Group();
+      const top = Math.max(0, ...plan.walls.map(w => w.height));
+      for (const r of plan.rooms || []) {
+        const shape = new THREE.Shape(r.polygon.map(q => new THREE.Vector2(q[0] - cx, -(q[1] - cy))));
+        const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), ceilingMat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.y = top;
+        ceilings.add(mesh);
+      }
+      ceilings.visible = !!walk;
+      scene.add(ceilings);
+      if (walk) walk.solids = FPWalk.solids(plan);
+
       const newSpan = Math.max(fw, fh);
       const sh = sun.shadow.camera;
       sh.left = -newSpan; sh.right = newSpan; sh.top = newSpan; sh.bottom = -newSpan;
@@ -102,6 +167,52 @@
       sh.updateProjectionMatrix();
       sun.position.set(newSpan * 0.6, newSpan * 1.2, newSpan * 0.8);
       if (Math.abs(newSpan - span) > 0.01) { span = newSpan; resetCamera(); }
+    }
+
+    // 第一人稱：滑鼠或手指拖曳轉頭，input 由鍵盤或畫面上的按鈕設定
+    function setWalk(on) {
+      if (on && plan) {
+        const solids = FPWalk.solids(plan);
+        walk = { state: FPWalk.start(plan, solids), solids, input: {} };
+        [walk.state.x, walk.state.y] = FPWalk.collide([walk.state.x, walk.state.y], walk.solids);
+        controls.enabled = false;
+        camera.fov = 70;
+        // 室內近看時陽光直射的牆面會過曝，把光線調柔和一點
+        ambient.intensity = 0.15; hemi.intensity = 0.55; sun.intensity = 0.4;
+        if (ceilings) ceilings.visible = true;
+      } else {
+        walk = null;
+        controls.enabled = true;
+        camera.fov = 45;
+        ambient.intensity = 0; hemi.intensity = 0.75; sun.intensity = 0.75;
+        if (ceilings) ceilings.visible = false;
+        resetCamera();
+      }
+      camera.updateProjectionMatrix();
+    }
+
+    let look = null;
+    renderer.domElement.addEventListener('pointerdown', e => {
+      if (!walk) return;
+      look = { x: e.clientX, y: e.clientY };
+      renderer.domElement.setPointerCapture(e.pointerId);
+    });
+    renderer.domElement.addEventListener('pointermove', e => {
+      if (!walk || !look) return;
+      walk.state.yaw += (e.clientX - look.x) * 0.005;
+      walk.state.pitch = Math.max(-1.2, Math.min(1.2, walk.state.pitch - (e.clientY - look.y) * 0.005));
+      look = { x: e.clientX, y: e.clientY };
+    });
+    const endLook = () => { look = null; };
+    renderer.domElement.addEventListener('pointerup', endLook);
+    renderer.domElement.addEventListener('pointercancel', endLook);
+
+    function placeWalkCamera() {
+      const st = walk.state;
+      camera.position.set(st.x - center[0], FPWalk.EYE, st.y - center[1]);
+      // yaw 是平面圖上的方向（y 向下），3D 的 z 軸就是平面圖的 y
+      const dx = Math.cos(st.yaw) * Math.cos(st.pitch), dz = Math.sin(st.yaw) * Math.cos(st.pitch), dy = Math.sin(st.pitch);
+      camera.lookAt(camera.position.x + dx, camera.position.y + dy, camera.position.z + dz);
     }
 
     function resetCamera() {
@@ -118,13 +229,26 @@
     }
     new ResizeObserver(resize).observe(container);
     resize();
-    (function loop() {
+    let last = performance.now();
+    (function loop(now) {
       requestAnimationFrame(loop);
-      controls.update();
+      const dt = Math.min(0.1, ((now || performance.now()) - last) / 1000);
+      last = now || performance.now();
+      if (walk) {
+        FPWalk.step(walk.state, walk.input, dt, walk.solids);
+        placeWalkCamera();
+      } else {
+        controls.update();
+      }
       renderer.render(scene, camera);
     })();
 
-    return { setPlan, resetCamera };
+    return {
+      setPlan, resetCamera, setWalk,
+      get walking() { return !!walk; },
+      // 漫遊時的移動輸入：{forward, back, left, right, turnLeft, turnRight, fast}
+      setInput(key, value) { if (walk) walk.input[key] = value; }
+    };
   }
 
   root.FPScene = { create: createScene };
