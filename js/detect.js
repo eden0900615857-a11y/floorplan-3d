@@ -70,5 +70,34 @@
     return { threshold, raw, walls };
   }
 
-  return { otsu, binarize, morph, wallMask };
+  // 彩色格局圖：牆通常是深灰或黑色，地板木紋、磁磚、家具插圖則帶有顏色。
+  // 把「有顏色」的像素往白色推（彩度 × COLOR_K 加到亮度上），灰階圖裡就只剩下低彩度的深色，
+  // 之後照黑白圖的流程辨識。colorful 是明顯帶顏色的像素比例，用來判斷要不要自動開啟。
+  const COLOR_K = 2.5;
+  function colorGray(rgba, w, h, k) {
+    k = k == null ? COLOR_K : k;
+    const n = w * h, plain = new Uint8ClampedArray(n), gray = new Uint8ClampedArray(n);
+    let colorful = 0;
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const r = rgba[p], g = rgba[p + 1], b = rgba[p + 2];
+      const lum = r * 0.299 + g * 0.587 + b * 0.114;
+      const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+      plain[i] = lum;
+      gray[i] = lum + k * chroma;
+      if (chroma > 40) colorful++;
+    }
+    return { plain, gray, colorful: colorful / n };
+  }
+
+  // 彩色格局圖的窗戶常畫成淺藍色的長條：偏藍、不太暗的像素，給門窗辨識當作窗線
+  function blueInk(rgba, w, h) {
+    const n = w * h, out = new Uint8Array(n);
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const r = rgba[p], g = rgba[p + 1], b = rgba[p + 2];
+      if (b - r >= 25 && b >= g - 10 && b > 120) out[i] = 1;
+    }
+    return out;
+  }
+
+  return { otsu, binarize, morph, wallMask, colorGray, blueInk, COLOR_K };
 });

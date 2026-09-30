@@ -105,5 +105,37 @@
     return { segments: merged, coverage: coverage(mask, w, h, merged) };
   }
 
-  return { extractBands, mergeCollinear, coverage, extractWalls };
+  // 圖片被裁切時（拍照、截圖常見），外牆可能剛好被切掉，牆一路延伸到圖片邊緣。
+  // 同一個邊上有兩面以上的牆碰到邊緣、邊緣又沒有牆時，沿著邊緣補一面牆，讓房間能封閉。
+  // 回傳 {segments, added}；補上的牆標記 border: true
+  function closeBorder(segs, w, h, tol) {
+    tol = tol == null ? 2 : tol;
+    const out = segs.slice(), added = [];
+    const edges = [
+      { dir: 'h', perp: 'v', touch: s => s.p0 <= tol, c: t => t / 2 },            // 上
+      { dir: 'h', perp: 'v', touch: s => s.p1 >= h - tol, c: t => h - t / 2 },    // 下
+      { dir: 'v', perp: 'h', touch: s => s.p0 <= tol, c: t => t / 2 },            // 左
+      { dir: 'v', perp: 'h', touch: s => s.p1 >= w - tol, c: t => w - t / 2 }     // 右
+    ];
+    for (const e of edges) {
+      const hits = segs.filter(s => s.dir === e.perp && e.touch(s));
+      if (hits.length < 2) continue;
+      const t = hits.map(s => s.t).sort((a, b) => a - b)[hits.length >> 1];
+      const lo = Math.min(...hits.map(s => s.c - s.t / 2)), hi = Math.max(...hits.map(s => s.c + s.t / 2));
+      const c = e.c(t);
+      // 邊緣附近已經有沿邊的牆蓋住大部分範圍，就不用補
+      let covered = 0;
+      for (const s of segs) {
+        if (s.dir !== e.dir || Math.abs(s.c - c) > t + tol) continue;
+        covered += Math.max(0, Math.min(hi, s.p1) - Math.max(lo, s.p0));
+      }
+      if (covered >= 0.8 * (hi - lo)) continue;
+      const seg = { dir: e.dir, c, t, p0: lo, p1: hi, border: true };
+      out.push(seg);
+      added.push(seg);
+    }
+    return { segments: out, added };
+  }
+
+  return { extractBands, mergeCollinear, coverage, extractWalls, closeBorder };
 });
