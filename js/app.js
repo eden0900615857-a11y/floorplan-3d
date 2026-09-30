@@ -12,8 +12,11 @@
   let edited = false;  // 使用者是否手動改過牆（改過就不會因為調整辨識設定而被覆蓋）
   let lastStats = {};  // 最近一次辨識的覆蓋率與時間
   let measured = 0;    // 比例尺工具量到的距離（公尺）
+  let viewing = false; // 正在看別人分享的連結：只能瀏覽，不寫入這台電腦的自動保存
+  const SITE_URL = 'https://eden0900615857-a11y.github.io/floorplan-3d/';  // 從電腦直接開檔案時，分享連結改指向網站
 
   const view3d = FPScene.create($('view'));
+  if (matchMedia('(pointer: coarse)').matches) $('viewTag').textContent = '單指拖曳旋轉 · 雙指縮放、平移';
   const editor = FPEditor.create($('editCanvas'), {
     getWallHeight: () => +$('wallH').value,
     onCommit: () => { setEdited(true); syncPlanWidth(); updateRooms(); refresh(); save(); },
@@ -82,7 +85,7 @@
   }
 
   function note(msg, isError) {
-    const el = $('fileNote');
+    const el = $(viewing ? 'viewerNote' : 'fileNote');
     el.textContent = msg || '';
     el.classList.toggle('error', !!isError);
   }
@@ -94,6 +97,7 @@
 
   function save() {
     if (plan) FPSchemes.sync(plan);
+    if (viewing) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(plan));
       localStorage.setItem(EDITED_KEY, edited ? '1' : '');
@@ -212,6 +216,7 @@
       const floor = floorSelect(FPMaterials.floor(r.floor).id);
       floor.setAttribute('aria-label', r.name + '的地板');
       floor.addEventListener('change', () => editor.setRoomFloor(floor.value, r.id));
+      floor.disabled = viewing;
       li.append(name, m2, ping, floor);
       list.appendChild(li);
     }
@@ -647,13 +652,72 @@
 
   const stage = $('stage');
   let dragDepth = 0;
-  stage.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; $('drop').hidden = false; });
+  stage.addEventListener('dragenter', e => { e.preventDefault(); if (viewing) return; dragDepth++; $('drop').hidden = false; });
   stage.addEventListener('dragover', e => e.preventDefault());
   stage.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('drop').hidden = true; } });
-  stage.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('drop').hidden = true; openFile(e.dataTransfer.files[0]); });
+  stage.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('drop').hidden = true; if (!viewing) openFile(e.dataTransfer.files[0]); });
+
+  // 分享連結：平面圖和所有方案壓縮進網址，對方打開就能看 3D、漫遊、切換方案
+  function shareBase() {
+    return /^https?:$/.test(location.protocol) ? location.href : SITE_URL;
+  }
+  $('share').addEventListener('click', async () => {
+    if (!plan) return;
+    FPSchemes.sync(plan);
+    let url;
+    try { url = FPShare.link(shareBase(), await FPShare.encode(plan)); } catch (e) { note('無法產生分享連結：' + e.message, true); return; }
+    $('shareUrl').value = url;
+    $('shareBox').hidden = false;
+    $('shareUrl').select();
+    let copied = false;
+    try { await navigator.clipboard.writeText(url); copied = true; } catch (e) { /* 不允許時讓使用者自己複製 */ }
+    $('shareMsg').textContent = (copied ? '連結已複製，' : '請複製上面的連結，') +
+      '傳給家人或師傅（LINE、Email 都可以）。對方打開可以看 3D、走進房子、切換方案，但改不到你的檔案。' +
+      (shareBase() === SITE_URL && location.protocol !== 'https:' ? '連結會開啟網站版，請先確認網站已經發布。' : '') +
+      '之後再修改，要重新產生連結。';
+  });
+  $('shareCopy').addEventListener('click', async () => {
+    $('shareUrl').select();
+    try { await navigator.clipboard.writeText($('shareUrl').value); $('shareMsg').textContent = '連結已複製。'; }
+    catch (e) { document.execCommand && document.execCommand('copy'); }
+  });
+
+  function setViewing(on) {
+    viewing = on;
+    document.body.classList.toggle('viewer', on);
+    $('viewerBar').hidden = !on;
+    if (on) { showTab('3d'); if (view3d.walking) setWalk(false); }
+  }
+
+  async function openShared(data) {
+    let p;
+    try { p = await FPShare.decode(data); }
+    catch (e) { setViewing(false); if (!plan && !restore()) loadSample(); note(e.message, true); return; }
+    setViewing(true);
+    openPlan(p, '', true);
+    const rooms = (p.rooms || []).length, schemes = (p.schemes || []).length;
+    note('共 ' + rooms + ' 個空間' + (schemes > 1 ? '、' + schemes + ' 個裝修方案，可以在右上角切換' : '') + '。');
+  }
+
+  // 把分享的平面圖存到這台電腦，改成可以編輯
+  $('viewerEdit').addEventListener('click', () => {
+    let had = false;
+    try { had = !!localStorage.getItem(STORAGE_KEY); } catch (e) { /* 略過 */ }
+    if (had && !confirm('這台電腦上原本的平面圖會被取代（建議先用「下載 JSON」備份）。要繼續嗎？')) return;
+    setViewing(false);
+    history.replaceState(null, '', location.pathname + location.search);
+    save();
+    refresh();
+    note('已存到這台電腦，現在可以編輯了。');
+  });
+  window.addEventListener('hashchange', () => { const d = FPShare.fromHash(location.hash); if (d) openShared(d); });
 
   syncOutputs();
   $('toolHint').textContent = TOOL_HINTS.select;
-  const start = () => { if (!restore()) loadSample(); };
+  const start = () => {
+    const shared = FPShare.fromHash(location.hash);
+    if (shared) openShared(shared);
+    else if (!restore()) loadSample();
+  };
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
 })();

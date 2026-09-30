@@ -13,11 +13,15 @@
 <div class="app">
   <header>
     <h1>平面圖轉 3D</h1>
-    <p>上傳房屋平面圖或施工圖 PDF，自動辨識牆、門窗與房間，拉高成 3D 模型。</p>
+    <p class="edit-only">上傳房屋平面圖或施工圖 PDF，自動辨識牆、門窗與房間，拉高成 3D 模型。</p>
+    <div class="viewerbar" id="viewerBar" hidden>
+      <p><b>別人分享給你的平面圖</b>，可以旋轉、走進房子、切換裝修方案。<span id="viewerNote" role="status"></span></p>
+      <button type="button" id="viewerEdit">存到這台電腦來編輯</button>
+    </div>
   </header>
   <div class="layout">
     <aside>
-      <div class="group">
+      <div class="group edit-only">
         <span class="label">平面圖</span>
         <div class="btnrow">
           <label class="filebtn">上傳圖片或 PDF<input id="file" type="file" accept="image/*,.pdf,application/pdf"></label>
@@ -29,7 +33,7 @@
         <p class="hint">藍色是辨識出來的牆，深色細線是門的開門弧與窗戶。</p>
       </div>
 
-      <div class="group">
+      <div class="group edit-only">
         <span class="label">牆線辨識</span>
         <p class="hint" id="pdfNote" hidden>PDF 施工圖直接讀取圖上的線條：兩條平行細線當作牆、開門弧當作門、牆裡的細線當作窗，不需要調整門檻。辨識不到或多出來的牆，請到「2D 校正」修改。</p>
         <div class="rasterctl" id="rasterCtl">
@@ -53,7 +57,7 @@
         </div>
       </div>
 
-      <div class="group">
+      <div class="group edit-only">
         <span class="label">尺寸</span>
         <div class="ctl">
           <label for="planW">圖面實際寬度（公尺）</label>
@@ -66,7 +70,7 @@
         </div>
       </div>
 
-      <div class="group">
+      <div class="group edit-only">
         <span class="label">結果</span>
         <dl class="stats">
           <dt>平面尺寸</dt><dd id="sSize">–</dd>
@@ -84,10 +88,10 @@
       <div class="group">
         <span class="label">房間</span>
         <ul class="rooms" id="roomList"></ul>
-        <p class="hint">面積是牆內的淨面積。沒有門的開放通道會讓相連的空間算成同一間；在「2D 校正」點選房間可以改名。每間房可以選地板材質，3D 會立刻換上。</p>
+        <p class="hint edit-only">面積是牆內的淨面積。沒有門的開放通道會讓相連的空間算成同一間；在「2D 校正」點選房間可以改名。每間房可以選地板材質，3D 會立刻換上。</p>
       </div>
 
-      <div class="group">
+      <div class="group edit-only">
         <span class="label">裝修</span>
         <div class="ctl">
           <label for="scheme">裝修方案</label>
@@ -115,8 +119,18 @@
         <p class="hint">粗估，給你和師傅討論用。地板是房間淨面積，叫料多抓 10% 損耗；油漆是房間四周牆面扣掉門窗，以一公升刷 10 m²、刷兩道估算。</p>
       </div>
 
-      <div class="group">
-        <span class="label">專案檔</span>
+      <div class="group edit-only">
+        <span class="label">分享與存檔</span>
+        <div class="btnrow">
+          <button id="share" type="button" class="primary">產生分享連結</button>
+        </div>
+        <div class="sharebox" id="shareBox" hidden>
+          <div class="btnrow">
+            <input id="shareUrl" type="text" readonly aria-label="分享連結">
+            <button id="shareCopy" type="button">複製</button>
+          </div>
+          <p class="hint" id="shareMsg" role="status"></p>
+        </div>
         <div class="btnrow">
           <button id="download" type="button">下載 JSON</button>
           <label class="filebtn secondary">開啟 JSON<input id="openJson" type="file" accept=".json,application/json"></label>
@@ -127,7 +141,7 @@
     </aside>
 
     <div class="stage" id="stage">
-      <div class="tabs" role="tablist" aria-label="檢視方式">
+      <div class="tabs edit-only" role="tablist" aria-label="檢視方式">
         <button type="button" role="tab" id="tab3d" aria-selected="true" aria-controls="view">3D 檢視</button>
         <button type="button" role="tab" id="tab2d" aria-selected="false" aria-controls="editor">2D 校正</button>
         <button type="button" role="tab" id="tabPick" aria-selected="false" aria-controls="pick" hidden>選擇範圍</button>
@@ -210,6 +224,7 @@
 <script src="js/vectorize.js"></script>
 <script src="js/openings.js"></script>
 <script src="js/plan.js"></script>
+<script src="js/share.js"></script>
 <script src="js/materials.js"></script>
 <script src="js/furniture.js"></script>
 <script src="js/walk.js"></script>
