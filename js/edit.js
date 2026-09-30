@@ -193,6 +193,11 @@
       o.offset = mm(o.offset * k);
       o.width = mm(o.width * k);
     }
+    for (const r of plan.rooms || []) {
+      r.polygon = r.polygon.map(p => roundPt([p[0] * k, p[1] * k]));
+      r.label = roundPt([r.label[0] * k, r.label[1] * k]);
+      r.area = Math.round(r.area * k * k * 100) / 100;
+    }
     if (plan.source && plan.source.pxPerMeter) plan.source.pxPerMeter = Math.round(plan.source.pxPerMeter / k * 10000) / 10000;
     return plan;
   }
@@ -208,12 +213,14 @@
     return {
       walls: plan.walls.map(w => ({ ...w, a: w.a.slice(), b: w.b.slice() })),
       openings: (plan.openings || []).map(o => ({ ...o })),
+      rooms: (plan.rooms || []).map(r => ({ ...r, polygon: r.polygon.map(p => p.slice()), label: r.label.slice() })),
       pxPerMeter: plan.source ? plan.source.pxPerMeter : null
     };
   }
   function restore(plan, snap) {
     plan.walls = snap.walls.map(w => ({ ...w, a: w.a.slice(), b: w.b.slice() }));
     plan.openings = snap.openings.map(o => ({ ...o }));
+    plan.rooms = snap.rooms.map(r => ({ ...r, polygon: r.polygon.map(p => p.slice()), label: r.label.slice() }));
     if (plan.source && snap.pxPerMeter != null) plan.source.pxPerMeter = snap.pxPerMeter;
   }
 

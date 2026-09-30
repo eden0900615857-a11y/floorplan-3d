@@ -4,6 +4,7 @@
 // 門窗（openings）掛在某面牆上：offset 是開口中心到牆 a 端的距離，width 是開口寬度。
 // 門另有 hinge（門軸靠近牆的 'a' 或 'b' 端）與 swing（往 a→b 方向的 'left' 或 'right' 側開，
 // 以螢幕上看到的方向為準，y 向下）。窗有 sill（窗台高度）。
+// 房間（rooms）由牆自動算出：polygon 是牆內的外框，area 是淨面積（平方公尺），label 是放房名的位置。
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -85,6 +86,13 @@
       if (!(w && w.height > 0)) errors.push(name + '：高度必須大於 0');
     });
     if (plan.openings != null && !Array.isArray(plan.openings)) return errors.concat('openings 必須是陣列');
+    if (plan.rooms != null && !Array.isArray(plan.rooms)) return errors.concat('rooms 必須是陣列');
+    (plan.rooms || []).forEach((r, i) => {
+      const name = r && r.id ? r.id : '第 ' + (i + 1) + ' 個房間';
+      if (!r || !Array.isArray(r.polygon) || r.polygon.length < 3 || !r.polygon.every(isPoint)) errors.push(name + '：polygon 至少要有 3 個 [x, y] 座標');
+      if (!r || typeof r.name !== 'string') errors.push(name + '：缺少房名');
+      if (!r || !isPoint(r.label)) errors.push(name + '：label 必須是 [x, y] 座標');
+    });
     (plan.openings || []).forEach((o, i) => {
       const name = o && o.id ? o.id : '第 ' + (i + 1) + ' 個門窗';
       if (!o || !OPENING_DEFAULTS[o.type]) { errors.push(name + '：type 必須是 door 或 window'); return; }
