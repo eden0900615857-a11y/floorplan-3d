@@ -66,6 +66,9 @@ button:focus-visible,.filebtn:focus-within,input:focus-visible{outline:2px solid
 .filebtn.secondary{background:transparent;color:var(--ink);border-color:var(--line);font-weight:400}
 .stage{position:relative;min-height:0;display:flex;flex-direction:column;gap:8px}
 .stage>.view,.stage>.editor{flex:1;min-height:0}
+.rasterctl{display:flex;flex-direction:column;gap:8px}
+.thick select{font:13px var(--sans);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+#pickCanvas canvas{cursor:crosshair}
 .tabs{display:flex;gap:6px}
 .tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
 button:disabled{opacity:.45;cursor:default}
