@@ -124,12 +124,14 @@
     $('thr').value = mask.threshold;
     $('thrOut').textContent = mask.threshold;
     const vec = FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
+    // 圖片裁到外牆時，沿著圖片邊緣補牆
+    const closed = FPVectorize.closeBorder(vec.segments, src.w, src.h);
     const planW = Math.max(1, +$('planW').value || 12);
     const ppm = src.w / planW;
     // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
     const ink = new Uint8Array(mask.raw.length);
     for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - mask.walls[i]);
-    const ops = FPOpenings.detect(vec.segments, ink, src.w, src.h, { minGap: 0.5 * ppm, maxGap: 2.5 * ppm });
+    const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, { minGap: 0.5 * ppm, maxGap: 2.5 * ppm });
     const p = FPPlan.fromSegments(ops.segments, {
       widthPx: src.w, heightPx: src.h,
       pxPerMeter: ppm,
@@ -445,9 +447,9 @@
   }
   const PICK_HINT = $('pickHint').textContent;
 
-  // 新的圖片：明顯帶顏色的像素超過 8% 就當作彩色格局圖
+  // 新的圖片：明顯帶顏色的像素超過 1% 就當作彩色格局圖（黑白圖打開也沒有影響）
   function autoColorMode() {
-    $('colorMode').checked = !!src && src.colorful > 0.08;
+    $('colorMode').checked = !!src && src.colorful > 0.01;
   }
 
   function loadSample(color) {

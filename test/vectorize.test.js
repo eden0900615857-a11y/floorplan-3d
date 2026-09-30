@@ -69,3 +69,19 @@ test('比最小牆厚還薄的碎片、粗體字大小的色塊不會變成牆',
   const { segments } = extractWalls(m.mask, m.w, m.h, { minThickness: 5 });
   assert.equal(segments.length, 0);
 });
+
+test('圖片裁到外牆：兩面以上的牆碰到上緣，就沿著上緣補一面牆', () => {
+  const { closeBorder } = require('../js/vectorize.js');
+  const segs = [
+    { dir: 'v', c: 10, t: 6, p0: 0, p1: 80 },
+    { dir: 'v', c: 90, t: 6, p0: 0, p1: 80 },
+    { dir: 'v', c: 50, t: 4, p0: 1, p1: 40 },
+    { dir: 'h', c: 80, t: 6, p0: 7, p1: 93 }
+  ];
+  const r = closeBorder(segs, 100, 100);
+  assert.equal(r.added.length, 1);
+  assert.deepEqual(r.added[0], { dir: 'h', c: 3, t: 6, p0: 7, p1: 93, border: true });
+  // 上緣已經有牆就不補；只有一面牆碰到邊緣也不補
+  assert.equal(closeBorder(r.segments, 100, 100).added.length, 0);
+  assert.equal(closeBorder([segs[0], segs[3]], 100, 100).added.length, 0);
+});

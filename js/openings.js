@@ -67,9 +67,10 @@
 
   function classify(ink, seg, g0, g1) {
     const t = seg.t;
-    if (hasWindowLines(ink.at, seg.dir, seg.c, t, g0, g1)) return { type: 'window' };
+    // 先找開門弧：門口常畫一條門檻線，會被誤認成窗線；窗外不會剛好有四分之一圓
     const arc = findDoorArc(ink.near, seg.dir, seg.c, t, g0, g1);
     if (arc) return { type: 'door', hinge: arc.hinge, side: arc.side };
+    if (hasWindowLines(ink.at, seg.dir, seg.c, t, g0, g1)) return { type: 'window' };
     return null;
   }
 
