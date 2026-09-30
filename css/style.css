@@ -2,7 +2,7 @@ body{margin:0}
 :root{
   --bg:#EDF0F3; --panel:#F8FAFB; --ink:#16212C; --muted:#5B6875; --line:#CBD3DB;
   --danger:#B3261E;
-  --accent:#1E5AA8; --accent-ink:#FFFFFF; --scene:#DCE2E8; --grid:rgba(30,90,168,.08);
+  --accent:#1E5AA8; --accent-ink:#FFFFFF; --accent-soft:rgba(30,90,168,.12); --select:#C9601A; --scene:#DCE2E8; --grid:rgba(30,90,168,.08);
   --sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
 }
@@ -11,14 +11,14 @@ body{margin:0}
     color-scheme:dark;
     --bg:#0F151B; --panel:#151D25; --ink:#E2E8EE; --muted:#93A1AE; --line:#2A3642;
     --danger:#F2B8B5;
-    --accent:#6BA3EC; --accent-ink:#0B1520; --scene:#121A22; --grid:rgba(107,163,236,.07);
+    --accent:#6BA3EC; --accent-ink:#0B1520; --accent-soft:rgba(107,163,236,.18); --select:#F2A65A; --scene:#121A22; --grid:rgba(107,163,236,.07);
   }
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
   --bg:#0F151B; --panel:#151D25; --ink:#E2E8EE; --muted:#93A1AE; --line:#2A3642;
   --danger:#F2B8B5;
-  --accent:#6BA3EC; --accent-ink:#0B1520; --scene:#121A22; --grid:rgba(107,163,236,.07);
+  --accent:#6BA3EC; --accent-ink:#0B1520; --accent-soft:rgba(107,163,236,.18); --select:#F2A65A; --scene:#121A22; --grid:rgba(107,163,236,.07);
 }
 [hidden]{display:none!important}
 html,body{height:100%}
@@ -56,11 +56,36 @@ button:focus-visible,.filebtn:focus-within,input:focus-visible{outline:2px solid
 .viewtag{position:absolute;left:12px;bottom:10px;font:12px var(--mono);color:var(--muted);pointer-events:none}
 .drop{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--accent) 18%,transparent);border:2px dashed var(--accent);font-weight:500;color:var(--ink);pointer-events:none}
 @media (max-width:820px){
-  .layout{grid-template-columns:1fr;grid-template-rows:auto}
-  .view{height:62vh;min-height:340px;order:-1}
+  .layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto}
+  .stage{order:-1;height:72vh;min-height:420px}
   .app{height:auto}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 .note{font-size:12px;color:var(--muted);margin:0;min-height:1.55em}
 .note.error{color:var(--danger)}
 .filebtn.secondary{background:transparent;color:var(--ink);border-color:var(--line);font-weight:400}
+.stage{position:relative;min-height:0;display:flex;flex-direction:column;gap:8px}
+.stage>.view,.stage>.editor{flex:1;min-height:0}
+.tabs{display:flex;gap:6px}
+.tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+button:disabled{opacity:.45;cursor:default}
+button:disabled:hover{border-color:var(--line)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+.editor{display:flex;flex-direction:column;gap:8px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.seg{display:flex}
+.seg button{border-radius:0}
+.seg button+button{margin-left:-1px}
+.seg button:first-child{border-radius:4px 0 0 4px}
+.seg button:last-child{border-radius:0 4px 4px 0}
+.tool[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);position:relative;font-weight:500}
+.thick{display:flex;align-items:center;gap:6px;font-size:13px}
+.thick input,.scaleform input{width:76px;font:12px var(--mono);padding:5px 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+.thick input:disabled{opacity:.45}
+.editcanvas{flex:1;min-height:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--scene)}
+.editcanvas canvas{display:block;touch-action:none}
+.editcanvas canvas:focus{outline:none}
+.editcanvas:focus-within{border-color:var(--accent)}
+.scaleform{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;padding:8px 10px;border:1px solid var(--danger);border-radius:6px;background:var(--panel)}
+.toolhint{margin:0;font-size:12px;color:var(--muted)}
+.redetect{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
