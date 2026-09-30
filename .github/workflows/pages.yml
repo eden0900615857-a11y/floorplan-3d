@@ -1,0 +1,28 @@
+# 把網頁發布到 GitHub Pages（https://eden0900615857-a11y.github.io/floorplan-3d/），分享連結會開這個網址。
+# 第一次使用前，要在 repo 的 Settings → Pages → Source 選「GitHub Actions」。
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir site && cp -r index.html css js site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
