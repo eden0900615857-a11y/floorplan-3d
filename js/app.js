@@ -24,7 +24,7 @@
       $('del').disabled = !(wall || op);
       $('thickCtl').hidden = !!(op || room);
       $('roomCtl').hidden = !room;
-      if (room) $('roomName').value = room.name;
+      if (room) { $('roomName').value = room.name; $('roomFloor').value = FPMaterials.floor(room.floor).id; }
       $('thick').disabled = !wall;
       $('thick').value = wall ? wall.thickness : '';
       $('openWCtl').hidden = !op;
@@ -196,7 +196,10 @@
       const name = document.createElement('span'); name.textContent = r.name;
       const m2 = document.createElement('span'); m2.className = 'num'; m2.textContent = r.area.toFixed(1) + ' m²';
       const ping = document.createElement('span'); ping.className = 'ping'; ping.textContent = FPRooms.toPing(r.area).toFixed(1) + ' 坪';
-      li.append(name, m2, ping);
+      const floor = floorSelect(FPMaterials.floor(r.floor).id);
+      floor.setAttribute('aria-label', r.name + '的地板');
+      floor.addEventListener('change', () => editor.setRoomFloor(floor.value, r.id));
+      li.append(name, m2, ping, floor);
       list.appendChild(li);
     }
     if (!rooms.length) {
@@ -208,6 +211,17 @@
     // 手動修改後，覆蓋率就不再代表目前的牆
     $('sCover').textContent = !edited && lastStats.coverage != null ? Math.round(lastStats.coverage * 100) + '%' : '–';
     $('sTime').textContent = lastStats.ms != null ? lastStats.ms.toFixed(0) + ' ms' : '–';
+  }
+
+  function floorSelect(value) {
+    const sel = document.createElement('select');
+    for (const f of FPMaterials.FLOORS) {
+      const o = document.createElement('option');
+      o.value = f.id; o.textContent = f.name;
+      sel.appendChild(o);
+    }
+    sel.value = value;
+    return sel;
   }
 
   // 側欄的小預覽：原圖淡化當底，上面畫出牆（藍色）與門窗符號
@@ -455,6 +469,49 @@
   $('openW').addEventListener('change', () => editor.setOpeningWidth(+$('openW').value));
   $('flip').addEventListener('click', () => editor.flipDoor());
   $('roomName').addEventListener('change', () => editor.renameRoom($('roomName').value));
+  for (const f of FPMaterials.FLOORS) {
+    const o = document.createElement('option');
+    o.value = f.id; o.textContent = f.name;
+    $('roomFloor').appendChild(o);
+  }
+  $('roomFloor').addEventListener('change', () => editor.setRoomFloor($('roomFloor').value));
+
+  // 第一人稱漫遊：鍵盤 WASD／方向鍵，或畫面上的按鈕（手機）
+  const VIEW_TAG = $('viewTag').textContent;
+  function setWalk(on) {
+    if (on && !plan) return;
+    view3d.setWalk(on);
+    $('walk').setAttribute('aria-pressed', String(on));
+    $('walk').textContent = on ? '離開漫遊' : '走進房子';
+    $('walkPad').hidden = !on;
+    $('view').classList.toggle('walking', on);
+    $('viewTag').textContent = on ? '拖曳轉頭 · W A S D 或方向鍵移動 · Shift 加速 · Esc 離開' : VIEW_TAG;
+  }
+  $('walk').addEventListener('click', () => setWalk(!view3d.walking));
+  const KEYS = {
+    KeyW: 'forward', ArrowUp: 'forward', KeyS: 'back', ArrowDown: 'back',
+    KeyA: 'left', KeyD: 'right', ArrowLeft: 'turnLeft', ArrowRight: 'turnRight',
+    ShiftLeft: 'fast', ShiftRight: 'fast'
+  };
+  const typing = e => /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+  window.addEventListener('keydown', e => {
+    if (!view3d.walking || $('view').hidden || typing(e)) return;
+    if (e.code === 'Escape') { setWalk(false); return; }
+    const k = KEYS[e.code];
+    if (!k) return;
+    e.preventDefault();
+    view3d.setInput(k, true);
+  });
+  window.addEventListener('keyup', e => { const k = KEYS[e.code]; if (k) view3d.setInput(k, false); });
+  window.addEventListener('blur', () => Object.values(KEYS).forEach(k => view3d.setInput(k, false)));
+  $('walkPad').querySelectorAll('button').forEach(b => {
+    const k = b.dataset.key;
+    b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); view3d.setInput(k, true); });
+    const up = () => view3d.setInput(k, false);
+    b.addEventListener('pointerup', up);
+    b.addEventListener('pointercancel', up);
+    b.addEventListener('lostpointercapture', up);
+  });
   $('scaleForm').addEventListener('submit', e => {
     e.preventDefault();
     const k = FPEdit.scaleFactor(measured, +$('scaleLen').value);
@@ -470,7 +527,7 @@
   $('openJson').addEventListener('change', e => { openFile(e.target.files[0]); e.target.value = ''; });
   $('download').addEventListener('click', downloadPlan);
   $('sample').addEventListener('click', loadSample);
-  $('resetCam').addEventListener('click', () => view3d.resetCamera());
+  $('resetCam').addEventListener('click', () => { if (view3d.walking) setWalk(false); else view3d.resetCamera(); });
 
   const stage = $('stage');
   let dragDepth = 0;

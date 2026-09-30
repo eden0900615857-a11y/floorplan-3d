@@ -81,7 +81,7 @@
       <div class="group">
         <span class="label">房間</span>
         <ul class="rooms" id="roomList"></ul>
-        <p class="hint">面積是牆內的淨面積。沒有門的開放通道會讓相連的空間算成同一間；在「2D 校正」點選房間可以改名。</p>
+        <p class="hint">面積是牆內的淨面積。沒有門的開放通道會讓相連的空間算成同一間；在「2D 校正」點選房間可以改名。每間房可以選地板材質，3D 會立刻換上。</p>
       </div>
 
       <div class="group">
@@ -102,7 +102,14 @@
         <button type="button" role="tab" id="tabPick" aria-selected="false" aria-controls="pick" hidden>選擇範圍</button>
       </div>
       <div class="view" id="view" role="tabpanel" aria-labelledby="tab3d">
-        <span class="viewtag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
+        <span class="viewtag" id="viewTag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
+        <button type="button" class="walkbtn" id="walk" aria-pressed="false">走進房子</button>
+        <div class="walkpad" id="walkPad" hidden>
+          <button type="button" data-key="forward" aria-label="前進" style="grid-area:f">▲</button>
+          <button type="button" data-key="turnLeft" aria-label="左轉" style="grid-area:l">⟲</button>
+          <button type="button" data-key="back" aria-label="後退" style="grid-area:b">▼</button>
+          <button type="button" data-key="turnRight" aria-label="右轉" style="grid-area:r">⟳</button>
+        </div>
       </div>
       <div class="editor" id="editor" role="tabpanel" aria-labelledby="tab2d" hidden>
         <div class="toolbar">
@@ -122,7 +129,10 @@
           <label class="thick" for="thick" id="thickCtl">牆厚 <input id="thick" type="number" min="0.02" max="1" step="0.01" disabled> m</label>
           <label class="thick" for="openW" id="openWCtl" hidden>開口寬 <input id="openW" type="number" min="0.3" max="5" step="0.05"> m</label>
           <button type="button" id="flip" hidden>換開門方向</button>
-          <label class="thick" for="roomName" id="roomCtl" hidden>房名 <input id="roomName" type="text" maxlength="20"></label>
+          <span class="thick" id="roomCtl" hidden>
+            <label class="thick" for="roomName">房名 <input id="roomName" type="text" maxlength="20"></label>
+            <label class="thick" for="roomFloor">地板 <select id="roomFloor"></select></label>
+          </span>
         </div>
         <div class="editcanvas" id="editCanvas"></div>
         <form class="scaleform" id="scaleForm" hidden>
@@ -157,6 +167,8 @@
 <script src="js/vectorize.js"></script>
 <script src="js/openings.js"></script>
 <script src="js/plan.js"></script>
+<script src="js/materials.js"></script>
+<script src="js/walk.js"></script>
 <script src="js/sample.js"></script>
 <script src="js/scene.js"></script>
 <script src="js/rooms.js"></script>

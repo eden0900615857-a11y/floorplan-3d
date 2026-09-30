@@ -155,7 +155,7 @@
     return inside;
   }
 
-  // 重新辨識後保留房名：舊房間的房名位置落在哪個新房間裡，新房間就沿用它的 id 與名稱。
+  // 重新辨識後保留房名：舊房間的房名位置落在哪個新房間裡，新房間就沿用它的 id、名稱與地板材質。
   // 好幾個舊房間合併成一間時，沿用其中面積最大的那一間
   function assign(found, previous) {
     const prev = (previous || []).filter(r => r && Array.isArray(r.label));
@@ -165,7 +165,9 @@
         .filter(o => !used.has(o.id) && pointInPolygon(o.label, r.polygon))
         .sort((a, b) => (b.area || 0) - (a.area || 0))[0];
       if (old) used.add(old.id);
-      return { id: old ? old.id : null, name: old ? old.name : null, polygon: r.polygon, area: r.area, label: r.label };
+      const room = { id: old ? old.id : null, name: old ? old.name : null, polygon: r.polygon, area: r.area, label: r.label };
+      if (old && old.floor) room.floor = old.floor;
+      return room;
     });
     const ids = new Set(rooms.filter(r => r.id).map(r => r.id));
     const names = new Set(rooms.filter(r => r.name).map(r => r.name));

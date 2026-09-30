@@ -489,6 +489,15 @@
       commit();
     }
 
+    // 地板材質：roomId 省略時改選取中的房間
+    function setRoomFloor(floor, roomId) {
+      const r = findRoom(roomId || selRoom);
+      if (!r || (r.floor || FPMaterials.DEFAULT_FLOOR) === floor) return;
+      history.record(plan);
+      r.floor = floor;
+      commit();
+    }
+
     function flipDoor() {
       const o = selOpening && FPEdit.findOpening(plan, selOpening);
       if (!o || o.type !== 'door') return;
@@ -520,7 +529,7 @@
     }
 
     return {
-      setPlan, setTool, deleteSelected, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, rescale, cancel,
+      setPlan, setTool, deleteSelected, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, setRoomFloor, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,
       get tool() { return tool; }
