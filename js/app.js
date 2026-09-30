@@ -1,11 +1,13 @@
 // 介面串接：上傳圖片 → 偵測牆像素 → 向量化 → 平面圖 JSON → 2D 預覽、2D 校正與 3D 場景。
+// PDF 施工圖則是框選範圍 → 讀取向量線條 → 成對平行線找牆 → 平面圖 JSON。
 (function () {
   const $ = id => document.getElementById(id);
   const MAX_SIDE = 900;                          // 辨識用的工作解析度（長邊像素）
   const STORAGE_KEY = 'floorplan-3d:last-plan';
   const EDITED_KEY = 'floorplan-3d:edited';
 
-  let src = null;      // 目前的原圖：{w, h, gray, canvas, dataURL}
+  let src = null;      // 目前的原圖：{w, h, gray, canvas, dataURL}；PDF 另有 vector: {lines, ppm}，fromPdf 表示原圖來自 PDF
+  let pdf = null;      // 目前開啟的 PDF：{doc, page}
   let plan = null;     // 目前的平面圖 JSON
   let edited = false;  // 使用者是否手動改過牆（改過就不會因為調整辨識設定而被覆蓋）
   let lastStats = {};  // 最近一次辨識的覆蓋率與時間
@@ -100,6 +102,8 @@
 
   function detect() {
     if (!src) return;
+    if (src.vector) return detectVector();
+    if (src.fromPdf) { note('這份平面圖來自 PDF，要重新辨識請重新上傳 PDF。', true); return; }
     const t0 = performance.now();
     const minThickness = +$('minT').value;
     const mask = FPDetect.wallMask(src.gray, src.w, src.h, {
@@ -125,6 +129,35 @@
     setEdited(false);
     setPlan(p, { coverage: vec.coverage, ms: performance.now() - t0 });
     save();
+  }
+
+  // PDF：兩條平行細線是牆、開門弧是門、牆裡的細線是窗
+  function detectVector() {
+    const t0 = performance.now();
+    const { lines, ppm } = src.vector;
+    const ex = FPLineWalls.extract(lines, { ppm });
+    const d = FPLineWalls.findDoors(ex.segments, lines, { ppm });
+    const wins = FPLineWalls.findWindows(d.segments, ex.axis, { ppm });
+    const p = FPPlan.fromSegments(d.segments, {
+      widthPx: src.w, heightPx: src.h,
+      pxPerMeter: ppm,
+      wallHeight: +$('wallH').value,
+      image: src.dataURL
+    }, d.doors.concat(wins));
+    p.source.from = 'pdf';
+    p.rooms = FPRooms.assign(FPRooms.detect(p), []);
+    FPLineWalls.dropIndoorWindows(p);
+    setEdited(false);
+    setPlan(p, { coverage: null, ms: performance.now() - t0 });
+    syncPlanWidth();
+    save();
+  }
+
+  // 辨識設定：圖片才有門檻等設定，PDF 直接讀線條
+  function syncSourceKind() {
+    const isPdf = !!(src && (src.vector || src.fromPdf));
+    $('rasterCtl').hidden = isPdf;
+    $('pdfNote').hidden = !isPdf;
   }
 
   // 依目前的牆重新找出房間，保留原本的房名
@@ -244,7 +277,7 @@
     };
     if (p.source && p.source.image) {
       const img = new Image();
-      img.onload = () => { loadSource(img); finish(); };
+      img.onload = () => { loadSource(img); src.fromPdf = p.source.from === 'pdf'; syncSourceKind(); finish(); };
       img.onerror = () => { src = null; finish(); };
       img.src = p.source.image;
     } else {
@@ -287,7 +320,7 @@
 
   function openImageFile(file) {
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { loadSource(img); URL.revokeObjectURL(url); detect(); view3d.resetCamera(); note(''); };
+    img.onload = () => { loadSource(img); syncSourceKind(); URL.revokeObjectURL(url); detect(); view3d.resetCamera(); note(''); };
     img.onerror = () => { URL.revokeObjectURL(url); note('無法讀取這張圖片，請改用 JPG 或 PNG。', true); };
     img.src = url;
   }
@@ -295,14 +328,68 @@
   function openFile(file) {
     if (!file) return;
     if (file.type === 'application/json' || /\.json$/i.test(file.name)) openJsonFile(file);
+    else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) openPdfFile(file);
     else if (file.type.startsWith('image/')) openImageFile(file);
-    else note('不支援這種檔案，請上傳 JPG、PNG 或 JSON。', true);
+    else note('不支援這種檔案，請上傳 JPG、PNG、PDF 或 JSON。', true);
   }
+
+  // PDF：先顯示整張圖紙，讓使用者框選要辨識的那一層
+  const picker = FPPdfPick.createPicker($('pickCanvas'), {
+    onChange: r => { $('pickGo').disabled = !r; }
+  });
+
+  function openPdfFile(file) {
+    note('正在讀取 PDF…');
+    FPPdfPick.open(file).then(doc => {
+      pdf = { doc, page: null };
+      const sel = $('pdfPage');
+      sel.textContent = '';
+      for (let i = 1; i <= doc.numPages; i++) {
+        const o = document.createElement('option');
+        o.value = i; o.textContent = i + ' / ' + doc.numPages;
+        sel.appendChild(o);
+      }
+      $('pageCtl').hidden = doc.numPages < 2;
+      $('tabPick').hidden = false;
+      showTab('pick');
+      note('');
+      return showPdfPage(1);
+    }).catch(err => note('無法讀取這個 PDF：' + (err && err.message ? err.message : err), true));
+  }
+
+  function showPdfPage(n) {
+    return pdf.doc.getPage(n).then(page => { pdf.page = page; return picker.show(page); });
+  }
+
+  function pickDetect() {
+    const rect = picker.getRect(), scale = +$('pdfScale').value;
+    if (!pdf || !pdf.page || !rect || !(scale > 0)) return;
+    $('pickGo').disabled = true;
+    $('pickHint').textContent = '正在辨識…';
+    FPPdfPick.extract(pdf.page, rect, MAX_SIDE).then(res => {
+      loadSource(res.canvas);
+      // 圖紙上 1 公尺 = 1000 / 比例 公釐 = 1000 / 比例 / 25.4 × 72 點
+      src.vector = { lines: res.lines, ppm: res.pxPerPt * 72000 / (25.4 * scale) };
+      src.fromPdf = true;
+      syncSourceKind();
+      detect();
+      view3d.resetCamera();
+      showTab('3d');
+      const doors = plan.openings.filter(o => o.type === 'door').length;
+      note('辨識出 ' + plan.walls.length + ' 段牆、' + doors + ' 扇門、' + (plan.openings.length - doors) + ' 扇窗、' + plan.rooms.length + ' 個房間。到「2D 校正」可以修正。');
+    }).catch(err => note('辨識失敗：' + (err && err.message ? err.message : err), true))
+      .then(() => {
+        $('pickGo').disabled = !picker.getRect();
+        $('pickHint').textContent = PICK_HINT;
+      });
+  }
+  const PICK_HINT = $('pickHint').textContent;
 
   function loadSample() {
     $('planW').value = 13.6; $('minT').value = 5; $('invert').checked = false; $('autoThr').checked = true;
     syncOutputs();
     loadSource(FPSample.draw());
+    syncSourceKind();
     detect();
     view3d.resetCamera();
     note('');
@@ -344,15 +431,19 @@
 
   // 3D / 2D 分頁
   function showTab(which) {
-    const is2d = which === '2d';
-    $('tab3d').setAttribute('aria-selected', String(!is2d));
-    $('tab2d').setAttribute('aria-selected', String(is2d));
-    $('view').hidden = is2d;
-    $('editor').hidden = !is2d;
-    if (is2d) requestAnimationFrame(() => editor.redraw());
+    const panels = { '3d': ['tab3d', 'view'], '2d': ['tab2d', 'editor'], pick: ['tabPick', 'pick'] };
+    for (const k in panels) {
+      $(panels[k][0]).setAttribute('aria-selected', String(k === which));
+      $(panels[k][1]).hidden = k !== which;
+    }
+    if (which === '2d') requestAnimationFrame(() => editor.redraw());
+    if (which === 'pick') requestAnimationFrame(() => picker.layout());
   }
   $('tab3d').addEventListener('click', () => showTab('3d'));
   $('tab2d').addEventListener('click', () => showTab('2d'));
+  $('tabPick').addEventListener('click', () => showTab('pick'));
+  $('pdfPage').addEventListener('change', () => showPdfPage(+$('pdfPage').value));
+  $('pickGo').addEventListener('click', pickDetect);
 
   // 2D 校正工具列
   document.querySelectorAll('.tool').forEach(b => b.addEventListener('click', () => editor.setTool(b.dataset.tool)));
