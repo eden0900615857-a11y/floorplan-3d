@@ -14,12 +14,15 @@
   const view3d = FPScene.create($('view'));
   const editor = FPEditor.create($('editCanvas'), {
     getWallHeight: () => +$('wallH').value,
-    onCommit: () => { setEdited(true); syncPlanWidth(); refresh(); save(); },
+    onCommit: () => { setEdited(true); syncPlanWidth(); updateRooms(); refresh(); save(); },
     onSelect: sel => {
       const wall = sel && sel.kind === 'wall' ? sel.item : null;
       const op = sel && sel.kind === 'opening' ? sel.item : null;
-      $('del').disabled = !sel;
-      $('thickCtl').hidden = !!op;
+      const room = sel && sel.kind === 'room' ? sel.item : null;
+      $('del').disabled = !(wall || op);
+      $('thickCtl').hidden = !!(op || room);
+      $('roomCtl').hidden = !room;
+      if (room) $('roomName').value = room.name;
       $('thick').disabled = !wall;
       $('thick').value = wall ? wall.thickness : '';
       $('openWCtl').hidden = !op;
@@ -45,7 +48,7 @@
   });
 
   const TOOL_HINTS = {
-    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
+    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳；點選房間可以改名。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
     wall: '在圖上拖曳畫出新牆。接近水平或垂直時會自動拉直（按住 Alt 可畫斜牆），靠近其他牆的端點會自動接上。',
     door: '點在牆上加一扇門（寬 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度，或按「換開門方向」。',
     window: '點在牆上加一扇窗（寬 1.2 公尺，窗台高 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度。',
@@ -124,9 +127,15 @@
     save();
   }
 
+  // 依目前的牆重新找出房間，保留原本的房名
+  function updateRooms() {
+    plan.rooms = FPRooms.assign(FPRooms.detect(plan), plan.rooms);
+  }
+
   // 換成一份新的平面圖（辨識結果或開啟的檔案）：2D 編輯器重新開始、復原紀錄清空
   function setPlan(p, stats) {
     plan = p;
+    updateRooms();
     lastStats = stats || {};
     editor.setPlan(p, src ? src.canvas : null);
     refresh();
@@ -144,6 +153,25 @@
     $('sLength').textContent = total.toFixed(1) + ' m';
     const ops = plan.openings || [];
     $('sOpen').textContent = ops.filter(o => o.type === 'door').length + ' / ' + ops.filter(o => o.type === 'window').length;
+    const rooms = (plan.rooms || []).slice().sort((a, b) => b.area - a.area);
+    const totalArea = rooms.reduce((sum, r) => sum + r.area, 0);
+    $('sArea').textContent = totalArea.toFixed(1) + ' m² · ' + FPRooms.toPing(totalArea).toFixed(1) + ' 坪';
+    const list = $('roomList');
+    list.textContent = '';
+    for (const r of rooms) {
+      const li = document.createElement('li');
+      const name = document.createElement('span'); name.textContent = r.name;
+      const m2 = document.createElement('span'); m2.className = 'num'; m2.textContent = r.area.toFixed(1) + ' m²';
+      const ping = document.createElement('span'); ping.className = 'ping'; ping.textContent = FPRooms.toPing(r.area).toFixed(1) + ' 坪';
+      li.append(name, m2, ping);
+      list.appendChild(li);
+    }
+    if (!rooms.length) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = '還沒有封閉的房間。檢查外牆是否都有接起來。';
+      list.appendChild(li);
+    }
     // 手動修改後，覆蓋率就不再代表目前的牆
     $('sCover').textContent = !edited && lastStats.coverage != null ? Math.round(lastStats.coverage * 100) + '%' : '–';
     $('sTime').textContent = lastStats.ms != null ? lastStats.ms.toFixed(0) + ' ms' : '–';
@@ -335,6 +363,7 @@
   $('thick').addEventListener('change', () => editor.setThickness(+$('thick').value));
   $('openW').addEventListener('change', () => editor.setOpeningWidth(+$('openW').value));
   $('flip').addEventListener('click', () => editor.flipDoor());
+  $('roomName').addEventListener('change', () => editor.renameRoom($('roomName').value));
   $('scaleForm').addEventListener('submit', e => {
     e.preventDefault();
     const k = FPEdit.scaleFactor(measured, +$('scaleLen').value);

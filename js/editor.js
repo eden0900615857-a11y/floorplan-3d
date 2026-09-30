@@ -19,7 +19,8 @@
 
     let plan = null, image = null, tool = 'select';
     let selected = null;      // 選取中的牆 id
-    let selOpening = null;    // 選取中的門窗 id（和牆只會選一個）
+    let selOpening = null;    // 選取中的門窗 id
+    let selRoom = null;       // 選取中的房間 id（牆、門窗、房間同時只會選一個）
     let view = { s: 50, ox: 0, oy: 0 };   // 螢幕座標 = 公尺 × s + o
     let drag = null, draft = null, scalePts = [], cw = 0, ch = 0, spaceDown = false;
     let userMoved = false;   // 使用者自己縮放或平移過，就不再自動調整視野
@@ -137,6 +138,16 @@
         ctx.globalAlpha = 1;
       }
       const accent = css('--accent'), sel = css('--select'), ink = css('--ink');
+      // 房間：淡色底，房名與面積寫在離牆最遠的位置
+      for (const r of plan.rooms || []) {
+        ctx.beginPath();
+        r.polygon.forEach((pt, n) => { const q = toScreen(pt); n ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+        ctx.closePath();
+        ctx.fillStyle = r.id === selRoom ? sel : accent;
+        ctx.globalAlpha = r.id === selRoom ? 0.22 : 0.08;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
       // 牆只畫實心的部分，門窗的位置留空，另外畫門窗符號
       for (const w of plan.walls) {
         if (!FPPlan.wallLength(w)) continue;
@@ -151,6 +162,25 @@
         for (const [s0, s1] of solid) { spanPath(w, s0, s1, w.thickness); ctx.fill(); }
         ctx.globalAlpha = 1;
         for (const sp of spans) drawOpening(w, sp, sp.o.id === selOpening ? sel : ink);
+      }
+      for (const r of plan.rooms || []) {
+        const q = toScreen(r.label);
+        const sub = r.area.toFixed(1) + ' m² · ' + FPRooms.toPing(r.area).toFixed(1) + ' 坪';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = '12px "IBM Plex Mono", ui-monospace, monospace';
+        const tw = ctx.measureText(sub).width;
+        ctx.font = '600 14px "Noto Sans TC", system-ui, sans-serif';
+        const bw = Math.max(tw, ctx.measureText(r.name).width) + 14;
+        // 底下墊一塊半透明的底，避免和原圖上的文字疊在一起看不清楚
+        ctx.fillStyle = css('--panel');
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(q[0] - bw / 2, q[1] - 21, bw, 42);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = r.id === selRoom ? sel : ink;
+        ctx.fillText(r.name, q[0], q[1] - 9);
+        ctx.font = '12px "IBM Plex Mono", ui-monospace, monospace';
+        ctx.fillText(sub, q[0], q[1] + 9);
       }
       const so = selOpening && FPEdit.findOpening(plan, selOpening);
       if (so && drag && drag.type === 'opening') {
@@ -213,13 +243,16 @@
     function select(kind, id) {
       selected = kind === 'wall' ? id : null;
       selOpening = kind === 'opening' ? id : null;
+      selRoom = kind === 'room' ? id : null;
     }
+    const findRoom = id => (plan.rooms || []).find(r => r.id === id) || null;
 
     function emit() {
       if (opts.onSelect) {
         const w = selected && FPEdit.findWall(plan, selected);
         const o = selOpening && FPEdit.findOpening(plan, selOpening);
-        opts.onSelect(w ? { kind: 'wall', item: w } : o ? { kind: 'opening', item: o } : null);
+        const r = selRoom && findRoom(selRoom);
+        opts.onSelect(w ? { kind: 'wall', item: w } : o ? { kind: 'opening', item: o } : r ? { kind: 'room', item: r } : null);
       }
       if (opts.onHistory) opts.onHistory({ canUndo: history.canUndo, canRedo: history.canRedo });
     }
@@ -283,7 +316,9 @@
           drag = { type: 'move', id: hit.id, start: p, orig: { a: w.a.slice(), b: w.b.slice() }, recorded: false };
           emit();
         } else {
-          if (selected || selOpening) { select(null); emit(); }
+          // 點在房間裡：選取房間（可以改名），同時也能拖曳平移
+          const room = FPRooms.hitRoom(plan, p);
+          if ((room ? room.id : null) !== selRoom || selected || selOpening) { select(room ? 'room' : null, room && room.id); emit(); }
           drag = { type: 'pan', sx: e.clientX, sy: e.clientY, ox: view.ox, oy: view.oy };
         }
         draw();
@@ -390,7 +425,7 @@
       draft = null;
       scalePts = [];
       if (opts.onScaleMeasured) opts.onScaleMeasured(null);
-      if (selected || selOpening) { select(null); emit(); }
+      if (selected || selOpening || selRoom) { select(null); emit(); }
       draw();
     }
 
@@ -414,6 +449,7 @@
     function dropStaleSelection() {
       if (selected && !FPEdit.findWall(plan, selected)) selected = null;
       if (selOpening && !FPEdit.findOpening(plan, selOpening)) selOpening = null;
+      if (selRoom && !findRoom(selRoom)) selRoom = null;
     }
 
     function undo() {
@@ -441,6 +477,15 @@
       if (!o || !(v > 0) || o.width === v) return;
       history.record(plan);
       FPEdit.setOpeningWidth(plan, o.id, v);
+      commit();
+    }
+
+    function renameRoom(name) {
+      const r = selRoom && findRoom(selRoom);
+      name = (name || '').trim();
+      if (!r || !name || r.name === name) return;
+      history.record(plan);
+      r.name = name;
       commit();
     }
 
@@ -475,7 +520,7 @@
     }
 
     return {
-      setPlan, setTool, deleteSelected, undo, redo, setThickness, setOpeningWidth, flipDoor, rescale, cancel,
+      setPlan, setTool, deleteSelected, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,
       get tool() { return tool; }

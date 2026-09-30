@@ -67,11 +67,18 @@
           <dt>牆</dt><dd id="sWalls">–</dd>
           <dt>牆總長</dt><dd id="sLength">–</dd>
           <dt>門 / 窗</dt><dd id="sOpen">–</dd>
+          <dt>室內面積</dt><dd id="sArea">–</dd>
           <dt>向量化覆蓋率</dt><dd id="sCover">–</dd>
           <dt>處理時間</dt><dd id="sTime">–</dd>
         </dl>
         <p class="hint">覆蓋率是牆像素被轉成直線段的比例。偏低通常代表圖上有斜牆或弧形牆，目前還不支援。</p>
         <div class="btnrow"><button id="resetCam" type="button">重設視角</button></div>
+      </div>
+
+      <div class="group">
+        <span class="label">房間</span>
+        <ul class="rooms" id="roomList"></ul>
+        <p class="hint">面積是牆內的淨面積。沒有門的開放通道會讓相連的空間算成同一間；在「2D 校正」點選房間可以改名。</p>
       </div>
 
       <div class="group">
@@ -111,6 +118,7 @@
           <label class="thick" for="thick" id="thickCtl">牆厚 <input id="thick" type="number" min="0.02" max="1" step="0.01" disabled> m</label>
           <label class="thick" for="openW" id="openWCtl" hidden>開口寬 <input id="openW" type="number" min="0.3" max="5" step="0.05"> m</label>
           <button type="button" id="flip" hidden>換開門方向</button>
+          <label class="thick" for="roomName" id="roomCtl" hidden>房名 <input id="roomName" type="text" maxlength="20"></label>
         </div>
         <div class="editcanvas" id="editCanvas"></div>
         <form class="scaleform" id="scaleForm" hidden>
@@ -135,6 +143,7 @@
 <script src="js/plan.js"></script>
 <script src="js/sample.js"></script>
 <script src="js/scene.js"></script>
+<script src="js/rooms.js"></script>
 <script src="js/edit.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/app.js"></script>
