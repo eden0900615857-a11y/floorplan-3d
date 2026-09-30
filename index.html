@@ -22,8 +22,9 @@
         <div class="btnrow">
           <label class="filebtn">上傳圖片或 PDF<input id="file" type="file" accept="image/*,.pdf,application/pdf"></label>
           <button id="sample" type="button">載入範例</button>
+          <button id="sampleColor" type="button">彩色範例</button>
         </div>
-        <p class="hint">支援 JPG、PNG 與 CAD 輸出的 PDF 施工圖，也可以直接把檔案拖進右側畫面。PDF 會先讓你框選要辨識的那一層。</p>
+        <p class="hint">支援黑白施工圖、建商彩色格局圖（JPG、PNG）與 CAD 輸出的 PDF 施工圖，也可以直接把檔案拖進右側畫面。PDF 會先讓你框選要辨識的那一層。</p>
         <canvas id="preview" aria-label="牆線辨識結果"></canvas>
         <p class="hint">藍色是辨識出來的牆，深色細線是門的開門弧與窗戶。</p>
       </div>
@@ -43,6 +44,8 @@
         </div>
         <p class="hint">比這個寬度細的線條（文字、尺寸線、家具輪廓）會被忽略。牆沒出現就調小，雜訊太多就調大。</p>
         <label class="check"><input id="invert" type="checkbox">反相（深色底、淺色線的藍圖）</label>
+        <label class="check"><input id="colorMode" type="checkbox">彩色格局圖（忽略有顏色的地板與家具）</label>
+        <p class="hint">建商的彩色格局圖：牆是深灰或黑色，地板木紋、磁磚和家具插圖帶顏色。打開後只把低彩度的深色當作牆，淺藍色長條當作窗。上傳彩色圖片時會自動打開。</p>
         </div>
         <div class="redetect" id="redetectBox" hidden>
           <p class="note">你已經手動修改過牆。重新辨識會用新的設定產生牆，並取代這些修改。</p>

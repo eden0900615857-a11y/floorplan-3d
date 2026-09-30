@@ -76,9 +76,9 @@
     g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
     g.drawImage(imgOrCanvas, 0, 0, w, h);
     const d = g.getImageData(0, 0, w, h).data;
-    const gray = new Uint8ClampedArray(w * h);
-    for (let i = 0, p = 0; i < gray.length; i++, p += 4) gray[i] = (d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114) | 0;
-    src = { w, h, gray, canvas: c, dataURL: c.toDataURL('image/jpeg', 0.85) };
+    // gray 是一般灰階；cgray 是彩色格局圖用的灰階（有顏色的地方當作白色）；blue 是淺藍色的窗
+    const cg = FPDetect.colorGray(d, w, h);
+    src = { w, h, gray: cg.plain, cgray: cg.gray, colorful: cg.colorful, blue: FPDetect.blueInk(d, w, h), canvas: c, dataURL: c.toDataURL('image/jpeg', 0.85) };
   }
 
   function note(msg, isError) {
@@ -115,7 +115,8 @@
     if (src.fromPdf) { note('這份平面圖來自 PDF，要重新辨識請重新上傳 PDF。', true); return; }
     const t0 = performance.now();
     const minThickness = +$('minT').value;
-    const mask = FPDetect.wallMask(src.gray, src.w, src.h, {
+    const color = $('colorMode').checked;
+    const mask = FPDetect.wallMask(color ? src.cgray : src.gray, src.w, src.h, {
       threshold: $('autoThr').checked ? 'auto' : +$('thr').value,
       invert: $('invert').checked,
       minThickness
@@ -127,7 +128,7 @@
     const ppm = src.w / planW;
     // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
     const ink = new Uint8Array(mask.raw.length);
-    for (let i = 0; i < ink.length; i++) ink[i] = mask.raw[i] & (1 - mask.walls[i]);
+    for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - mask.walls[i]);
     const ops = FPOpenings.detect(vec.segments, ink, src.w, src.h, { minGap: 0.5 * ppm, maxGap: 2.5 * ppm });
     const p = FPPlan.fromSegments(ops.segments, {
       widthPx: src.w, heightPx: src.h,
@@ -336,7 +337,7 @@
     };
     if (p.source && p.source.image) {
       const img = new Image();
-      img.onload = () => { loadSource(img); src.fromPdf = p.source.from === 'pdf'; syncSourceKind(); finish(); };
+      img.onload = () => { loadSource(img); autoColorMode(); src.fromPdf = p.source.from === 'pdf'; syncSourceKind(); finish(); };
       img.onerror = () => { src = null; finish(); };
       img.src = p.source.image;
     } else {
@@ -379,7 +380,7 @@
 
   function openImageFile(file) {
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { loadSource(img); syncSourceKind(); URL.revokeObjectURL(url); detect(); view3d.resetCamera(); note(''); };
+    img.onload = () => { loadSource(img); autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); detect(); view3d.resetCamera(); note(''); };
     img.onerror = () => { URL.revokeObjectURL(url); note('無法讀取這張圖片，請改用 JPG 或 PNG。', true); };
     img.src = url;
   }
@@ -444,10 +445,16 @@
   }
   const PICK_HINT = $('pickHint').textContent;
 
-  function loadSample() {
+  // 新的圖片：明顯帶顏色的像素超過 8% 就當作彩色格局圖
+  function autoColorMode() {
+    $('colorMode').checked = !!src && src.colorful > 0.08;
+  }
+
+  function loadSample(color) {
     $('planW').value = 13.6; $('minT').value = 5; $('invert').checked = false; $('autoThr').checked = true;
     syncOutputs();
-    loadSource(FPSample.draw());
+    loadSource(color === true ? FPSample.drawColor() : FPSample.draw());
+    autoColorMode();
     syncSourceKind();
     detect();
     view3d.resetCamera();
@@ -463,7 +470,7 @@
 
   // 辨識設定：還沒手動修改就直接重新辨識；改過的話先詢問
   let timer = 0;
-  ['thr', 'minT', 'autoThr', 'invert'].forEach(id => $(id).addEventListener('input', () => {
+  ['thr', 'minT', 'autoThr', 'invert', 'colorMode'].forEach(id => $(id).addEventListener('input', () => {
     syncOutputs();
     if (edited) { $('redetectBox').hidden = false; return; }
     clearTimeout(timer);
@@ -632,7 +639,8 @@
   $('file').addEventListener('change', e => { openFile(e.target.files[0]); e.target.value = ''; });
   $('openJson').addEventListener('change', e => { openFile(e.target.files[0]); e.target.value = ''; });
   $('download').addEventListener('click', downloadPlan);
-  $('sample').addEventListener('click', loadSample);
+  $('sample').addEventListener('click', () => loadSample(false));
+  $('sampleColor').addEventListener('click', () => loadSample(true));
   $('resetCam').addEventListener('click', () => { if (view3d.walking) setWalk(false); else view3d.resetCamera(); });
 
   const stage = $('stage');
