@@ -24,10 +24,12 @@
     const box = new THREE.BoxGeometry(1, 1, 1);
     box.translate(0, 0.5, 0);
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xeef1f4, roughness: 0.85 });
-    let walls = null, floor = null, span = 0;
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x9cc7e8, roughness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
+    let walls = null, glass = null, floor = null, span = 0;
 
     function clear() {
       if (walls) { scene.remove(walls); walls.dispose(); walls = null; }
+      if (glass) { scene.remove(glass); glass.dispose(); glass = null; }
       if (floor) {
         scene.remove(floor);
         floor.geometry.dispose();
@@ -42,23 +44,41 @@
       clear();
       const bb = FPPlan.bounds(plan);
       const cx = (bb.minX + bb.maxX) / 2, cy = (bb.minY + bb.maxY) / 2;
-      const n = plan.walls.length;
-      walls = new THREE.InstancedMesh(box, wallMat, Math.max(1, n));
-      walls.count = n;
-      walls.castShadow = true;
-      walls.receiveShadow = true;
+      // 每面牆依門窗切成數個方塊；窗戶另外放一片玻璃
+      const boxes = [], panes = [];
+      for (const w of plan.walls) {
+        const L = FPPlan.wallLength(w);
+        if (!L) continue;
+        const ops = FPPlan.openingsOf(plan, w.id);
+        for (const pc of FPPlan.wallPieces(w, ops)) boxes.push({ w, L, s0: pc.s0, s1: pc.s1, y0: pc.y0, y1: pc.y1, t: w.thickness });
+        for (const sp of FPPlan.openingSpans(w, ops)) {
+          if (sp.o.type !== 'window') continue;
+          const y0 = Math.min(sp.o.sill || 0, w.height), y1 = Math.min(w.height, y0 + sp.o.height);
+          if (y1 > y0) panes.push({ w, L, s0: sp.s0, s1: sp.s1, y0, y1, t: Math.min(0.02, w.thickness * 0.3) });
+        }
+      }
       const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
       const up = new THREE.Vector3(0, 1, 0);
-      plan.walls.forEach((w, i) => {
-        const dx = w.b[0] - w.a[0], dy = w.b[1] - w.a[1];
-        p.set((w.a[0] + w.b[0]) / 2 - cx, 0, (w.a[1] + w.b[1]) / 2 - cy);
-        // 平面圖的 y 對應 3D 的 z；方塊的長邊（x 軸）轉到 a→b 的方向
-        q.setFromAxisAngle(up, -Math.atan2(dy, dx));
-        sc.set(Math.hypot(dx, dy), w.height, w.thickness);
-        m.compose(p, q, sc);
-        walls.setMatrixAt(i, m);
-      });
-      walls.instanceMatrix.needsUpdate = true;
+      function instanced(list, mat) {
+        const mesh = new THREE.InstancedMesh(box, mat, Math.max(1, list.length));
+        mesh.count = list.length;
+        list.forEach((b, i) => {
+          const ux = (b.w.b[0] - b.w.a[0]) / b.L, uy = (b.w.b[1] - b.w.a[1]) / b.L, mid = (b.s0 + b.s1) / 2;
+          p.set(b.w.a[0] + ux * mid - cx, b.y0, b.w.a[1] + uy * mid - cy);
+          // 平面圖的 y 對應 3D 的 z；方塊的長邊（x 軸）轉到 a→b 的方向
+          q.setFromAxisAngle(up, -Math.atan2(uy, ux));
+          sc.set(b.s1 - b.s0, b.y1 - b.y0, b.t);
+          m.compose(p, q, sc);
+          mesh.setMatrixAt(i, m);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        return mesh;
+      }
+      walls = instanced(boxes, wallMat);
+      walls.castShadow = true;
+      walls.receiveShadow = true;
+      glass = instanced(panes, glassMat);
+      scene.add(glass);
       scene.add(walls);
 
       const fw = bb.maxX - bb.minX, fh = bb.maxY - bb.minY;

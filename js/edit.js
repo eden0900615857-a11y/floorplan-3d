@@ -1,4 +1,4 @@
-// 平面圖編輯操作：選取判定、端點吸附、拉直、新增 / 刪除牆、比例尺換算、復原與重做。
+// 平面圖編輯操作：選取判定、端點吸附、拉直、新增 / 刪除牆與門窗、比例尺換算、復原與重做。
 // 只操作平面圖 JSON，不碰畫面，方便測試。座標單位一律公尺。
 (function (root, factory) {
   const api = factory();
@@ -6,19 +6,23 @@
   else root.FPEdit = api;
 })(typeof self !== 'undefined' ? self : this, function () {
   const mm = v => Math.round(v * 1000) / 1000;
+  const FPPlanRef = () => (typeof FPPlan !== 'undefined' ? FPPlan : require('./plan.js'));
   const roundPt = p => [mm(p[0]), mm(p[1])];
 
   function findWall(plan, id) {
     return plan.walls.find(w => w.id === id) || null;
   }
 
-  function nextId(plan) {
+  function nextId(plan, prefix) {
+    prefix = prefix || 'w';
+    const list = prefix === 'w' ? plan.walls : (plan.openings || []);
+    const re = new RegExp('^' + prefix + '(\\d+)$');
     let max = 0;
-    for (const w of plan.walls) {
-      const m = /^w(\d+)$/.exec(w.id);
+    for (const x of list) {
+      const m = re.exec(x.id);
       if (m) max = Math.max(max, +m[1]);
     }
-    return 'w' + (max + 1);
+    return prefix + (max + 1);
   }
 
   function addWall(plan, a, b, thickness, height) {
@@ -27,11 +31,91 @@
     return wall;
   }
 
+  // 刪除牆時，牆上的門窗一起刪除
   function deleteWall(plan, id) {
     const i = plan.walls.findIndex(w => w.id === id);
     if (i < 0) return false;
     plan.walls.splice(i, 1);
+    if (plan.openings) plan.openings = plan.openings.filter(o => o.wall !== id);
     return true;
+  }
+
+  function findOpening(plan, id) {
+    return (plan.openings || []).find(o => o.id === id) || null;
+  }
+
+  // 門窗在牆上的位置限制：整個開口要在牆的範圍內
+  function clampOffset(wall, width, offset) {
+    const L = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
+    if (width >= L) return L / 2;
+    return Math.max(width / 2, Math.min(L - width / 2, offset));
+  }
+
+  // 在牆上加門窗；寬度超過牆長時縮到牆長減 10 公分
+  function addOpening(plan, wallId, type, offset, width) {
+    const wall = findWall(plan, wallId);
+    if (!wall) return null;
+    const L = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
+    const wd = Math.max(0.1, Math.min(width, L - 0.1));
+    if (!plan.openings) plan.openings = [];
+    const o = FPPlanRef().makeOpening(nextId(plan, 'o'), type, wallId, clampOffset(wall, wd, offset), wd);
+    plan.openings.push(o);
+    return o;
+  }
+
+  function deleteOpening(plan, id) {
+    const i = (plan.openings || []).findIndex(o => o.id === id);
+    if (i < 0) return false;
+    plan.openings.splice(i, 1);
+    return true;
+  }
+
+  function moveOpening(plan, id, offset) {
+    const o = findOpening(plan, id), wall = o && findWall(plan, o.wall);
+    if (!wall) return null;
+    o.offset = mm(clampOffset(wall, o.width, offset));
+    return o;
+  }
+
+  function setOpeningWidth(plan, id, width) {
+    const o = findOpening(plan, id), wall = o && findWall(plan, o.wall);
+    if (!wall || !(width > 0)) return null;
+    const L = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
+    o.width = mm(Math.min(width, L));
+    o.offset = mm(clampOffset(wall, o.width, o.offset));
+    return o;
+  }
+
+  // 門的開向依序切換：左開 → 右開 → 門軸換邊左開 → 門軸換邊右開
+  function flipDoor(plan, id) {
+    const o = findOpening(plan, id);
+    if (!o || o.type !== 'door') return null;
+    if (o.swing === 'left') o.swing = 'right';
+    else { o.swing = 'left'; o.hinge = o.hinge === 'a' ? 'b' : 'a'; }
+    return o;
+  }
+
+  // 點到牆上的哪個位置（沿牆距離，公尺）
+  function projectOnWall(wall, p) {
+    const L = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
+    return distToSegment(p, wall.a, wall.b).t * L;
+  }
+
+  // 點到的門窗：點在開口範圍內、離牆中心線不遠
+  function hitOpening(plan, p, tol) {
+    let best = null, bestD = Infinity;
+    for (const o of plan.openings || []) {
+      const w = findWall(plan, o.wall);
+      if (!w) continue;
+      const L = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
+      if (!L) continue;
+      const ux = (w.b[0] - w.a[0]) / L, uy = (w.b[1] - w.a[1]) / L;
+      const c = [w.a[0] + ux * o.offset, w.a[1] + uy * o.offset];
+      const half = o.width / 2;
+      const { d } = distToSegment(p, [c[0] - ux * half, c[1] - uy * half], [c[0] + ux * half, c[1] + uy * half]);
+      if (d <= Math.max(w.thickness / 2, tol) && d < bestD) { best = o; bestD = d; }
+    }
+    return best;
   }
 
   // 點到線段的距離，t 是投影位置（0 在 a、1 在 b）
@@ -98,12 +182,16 @@
     return w;
   }
 
-  // 整張平面圖放大 k 倍（比例尺校正用）：牆的位置、長度、厚度一起縮放，牆高不變
+  // 整張平面圖放大 k 倍（比例尺校正用）：牆的位置、長度、厚度與門窗的位置、寬度一起縮放，高度不變
   function rescale(plan, k) {
     for (const w of plan.walls) {
       w.a = roundPt([w.a[0] * k, w.a[1] * k]);
       w.b = roundPt([w.b[0] * k, w.b[1] * k]);
       w.thickness = mm(w.thickness * k);
+    }
+    for (const o of plan.openings || []) {
+      o.offset = mm(o.offset * k);
+      o.width = mm(o.width * k);
     }
     if (plan.source && plan.source.pxPerMeter) plan.source.pxPerMeter = Math.round(plan.source.pxPerMeter / k * 10000) / 10000;
     return plan;
@@ -119,11 +207,13 @@
   function snapshot(plan) {
     return {
       walls: plan.walls.map(w => ({ ...w, a: w.a.slice(), b: w.b.slice() })),
+      openings: (plan.openings || []).map(o => ({ ...o })),
       pxPerMeter: plan.source ? plan.source.pxPerMeter : null
     };
   }
   function restore(plan, snap) {
     plan.walls = snap.walls.map(w => ({ ...w, a: w.a.slice(), b: w.b.slice() }));
+    plan.openings = snap.openings.map(o => ({ ...o }));
     if (plan.source && snap.pxPerMeter != null) plan.source.pxPerMeter = snap.pxPerMeter;
   }
 
@@ -154,6 +244,7 @@
 
   return {
     findWall, nextId, addWall, deleteWall, distToSegment, hitTest,
+    findOpening, addOpening, deleteOpening, moveOpening, setOpeningWidth, flipDoor, projectOnWall, hitOpening,
     snapToEndpoint, snapOrtho, moveEndpoint, moveWall, rescale, scaleFactor, History
   };
 });

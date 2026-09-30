@@ -15,11 +15,18 @@
   const editor = FPEditor.create($('editCanvas'), {
     getWallHeight: () => +$('wallH').value,
     onCommit: () => { setEdited(true); syncPlanWidth(); refresh(); save(); },
-    onSelect: w => {
-      $('del').disabled = !w;
-      $('thick').disabled = !w;
-      $('thick').value = w ? w.thickness : '';
+    onSelect: sel => {
+      const wall = sel && sel.kind === 'wall' ? sel.item : null;
+      const op = sel && sel.kind === 'opening' ? sel.item : null;
+      $('del').disabled = !sel;
+      $('thickCtl').hidden = !!op;
+      $('thick').disabled = !wall;
+      $('thick').value = wall ? wall.thickness : '';
+      $('openWCtl').hidden = !op;
+      $('openW').value = op ? op.width : '';
+      $('flip').hidden = !(op && op.type === 'door');
     },
+    onMiss: () => { $('toolHint').textContent = '門窗要加在牆上，請點在藍色的牆上。'; },
     onHistory: h => { $('undo').disabled = !h.canUndo; $('redo').disabled = !h.canRedo; },
     onTool: t => {
       document.querySelectorAll('.tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
@@ -38,8 +45,10 @@
   });
 
   const TOOL_HINTS = {
-    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
+    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
     wall: '在圖上拖曳畫出新牆。接近水平或垂直時會自動拉直（按住 Alt 可畫斜牆），靠近其他牆的端點會自動接上。',
+    door: '點在牆上加一扇門（寬 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度，或按「換開門方向」。',
+    window: '點在牆上加一扇窗（寬 1.2 公尺，窗台高 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度。',
     scale: '在圖上點兩個點，例如尺寸標註的兩端，再輸入這段的實際長度，整張圖會照比例縮放。'
   };
 
@@ -99,12 +108,17 @@
     $('thrOut').textContent = mask.threshold;
     const vec = FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
     const planW = Math.max(1, +$('planW').value || 12);
-    const p = FPPlan.fromSegments(vec.segments, {
+    const ppm = src.w / planW;
+    // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
+    const ink = new Uint8Array(mask.raw.length);
+    for (let i = 0; i < ink.length; i++) ink[i] = mask.raw[i] & (1 - mask.walls[i]);
+    const ops = FPOpenings.detect(vec.segments, ink, src.w, src.h, { minGap: 0.5 * ppm, maxGap: 2.5 * ppm });
+    const p = FPPlan.fromSegments(ops.segments, {
       widthPx: src.w, heightPx: src.h,
-      pxPerMeter: src.w / planW,
+      pxPerMeter: ppm,
       wallHeight: +$('wallH').value,
       image: src.dataURL
-    });
+    }, ops.openings);
     setEdited(false);
     setPlan(p, { coverage: vec.coverage, ms: performance.now() - t0 });
     save();
@@ -128,12 +142,14 @@
     $('sSize').textContent = (bb.maxX - bb.minX).toFixed(1) + ' × ' + (bb.maxY - bb.minY).toFixed(1) + ' m';
     $('sWalls').textContent = plan.walls.length + ' 段';
     $('sLength').textContent = total.toFixed(1) + ' m';
+    const ops = plan.openings || [];
+    $('sOpen').textContent = ops.filter(o => o.type === 'door').length + ' / ' + ops.filter(o => o.type === 'window').length;
     // 手動修改後，覆蓋率就不再代表目前的牆
     $('sCover').textContent = !edited && lastStats.coverage != null ? Math.round(lastStats.coverage * 100) + '%' : '–';
     $('sTime').textContent = lastStats.ms != null ? lastStats.ms.toFixed(0) + ' ms' : '–';
   }
 
-  // 側欄的小預覽：原圖淡化當底，上面畫出牆（藍色）與中心線、端點
+  // 側欄的小預覽：原圖淡化當底，上面畫出牆（藍色）與門窗符號
   function drawPreview(p, image) {
     const cv = $('preview'), g = cv.getContext('2d');
     const bb = FPPlan.bounds(p);
@@ -146,21 +162,41 @@
     g.save();
     g.scale(ppm, ppm);
     g.translate(-bb.minX, -bb.minY);
+    const px = 1 / ppm;
     for (const w of p.walls) {
-      const len = FPPlan.wallLength(w);
-      g.save();
-      g.translate((w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2);
-      g.rotate(Math.atan2(w.b[1] - w.a[1], w.b[0] - w.a[0]));
-      g.fillStyle = 'rgba(30,90,168,.85)';
-      g.fillRect(-len / 2, -w.thickness / 2, len, w.thickness);
-      g.restore();
-    }
-    g.strokeStyle = '#0B2A52';
-    g.fillStyle = '#0B2A52';
-    g.lineWidth = 1 / ppm;
-    for (const w of p.walls) {
-      g.beginPath(); g.moveTo(w.a[0], w.a[1]); g.lineTo(w.b[0], w.b[1]); g.stroke();
-      for (const pt of [w.a, w.b]) { g.beginPath(); g.arc(pt[0], pt[1], 2.5 / ppm, 0, Math.PI * 2); g.fill(); }
+      const L = FPPlan.wallLength(w);
+      if (!L) continue;
+      const ux = (w.b[0] - w.a[0]) / L, uy = (w.b[1] - w.a[1]) / L;
+      const at = d => [w.a[0] + ux * d, w.a[1] + uy * d];
+      const spans = FPPlan.openingSpans(w, FPPlan.openingsOf(p, w.id));
+      const solid = [];
+      let cur = 0;
+      for (const sp of spans) { if (sp.s0 > cur) solid.push([cur, sp.s0]); cur = Math.max(cur, sp.s1); }
+      if (cur < L) solid.push([cur, L]);
+      g.strokeStyle = 'rgba(30,90,168,.85)';
+      g.lineWidth = w.thickness;
+      g.lineCap = 'butt';
+      for (const [s0, s1] of solid) { const a = at(s0), b = at(s1); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); }
+      g.strokeStyle = '#0B2A52';
+      g.lineWidth = 1.5 * px;
+      for (const sp of spans) {
+        const o = sp.o;
+        if (o.type === 'window') {
+          const off = w.thickness / 4, a = at(sp.s0), b = at(sp.s1);
+          g.beginPath();
+          g.moveTo(a[0] - uy * off, a[1] + ux * off); g.lineTo(b[0] - uy * off, b[1] + ux * off);
+          g.moveTo(a[0] + uy * off, a[1] - ux * off); g.lineTo(b[0] + uy * off, b[1] - ux * off);
+          g.stroke();
+        } else {
+          const h = at(o.hinge === 'b' ? sp.s1 : sp.s0), j = at(o.hinge === 'b' ? sp.s0 : sp.s1);
+          const side = o.swing === 'right' ? -1 : 1, nx = uy * side, ny = -ux * side, r = sp.s1 - sp.s0;
+          const a0 = Math.atan2(j[1] - h[1], j[0] - h[0]), a1 = Math.atan2(ny, nx);
+          let d = a1 - a0;
+          while (d > Math.PI) d -= 2 * Math.PI;
+          while (d <= -Math.PI) d += 2 * Math.PI;
+          g.beginPath(); g.arc(h[0], h[1], r, a0, a1, d < 0); g.lineTo(h[0], h[1]); g.stroke();
+        }
+      }
     }
     g.restore();
   }
@@ -297,6 +333,8 @@
   $('del').addEventListener('click', () => editor.deleteSelected());
   $('fit').addEventListener('click', () => editor.fit());
   $('thick').addEventListener('change', () => editor.setThickness(+$('thick').value));
+  $('openW').addEventListener('change', () => editor.setOpeningWidth(+$('openW').value));
+  $('flip').addEventListener('click', () => editor.flipDoor());
   $('scaleForm').addEventListener('submit', e => {
     e.preventDefault();
     const k = FPEdit.scaleFactor(measured, +$('scaleLen').value);

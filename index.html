@@ -25,7 +25,7 @@
         </div>
         <p class="hint">支援 JPG、PNG，也可以直接把圖片或 JSON 拖進右側畫面。PDF 請先轉成圖片。</p>
         <canvas id="preview" aria-label="牆線辨識結果"></canvas>
-        <p class="hint">藍色是辨識出來的牆，深色細線是每面牆的中心線與端點。</p>
+        <p class="hint">藍色是辨識出來的牆，深色細線是門的開門弧與窗戶。</p>
       </div>
 
       <div class="group">
@@ -66,6 +66,7 @@
           <dt>平面尺寸</dt><dd id="sSize">–</dd>
           <dt>牆</dt><dd id="sWalls">–</dd>
           <dt>牆總長</dt><dd id="sLength">–</dd>
+          <dt>門 / 窗</dt><dd id="sOpen">–</dd>
           <dt>向量化覆蓋率</dt><dd id="sCover">–</dd>
           <dt>處理時間</dt><dd id="sTime">–</dd>
         </dl>
@@ -97,15 +98,19 @@
           <div class="seg" role="group" aria-label="工具">
             <button type="button" class="tool" data-tool="select" aria-pressed="true">選取</button>
             <button type="button" class="tool" data-tool="wall" aria-pressed="false">畫牆</button>
+            <button type="button" class="tool" data-tool="door" aria-pressed="false">加門</button>
+            <button type="button" class="tool" data-tool="window" aria-pressed="false">加窗</button>
             <button type="button" class="tool" data-tool="scale" aria-pressed="false">比例尺</button>
           </div>
           <div class="btnrow">
             <button type="button" id="undo" disabled>復原</button>
             <button type="button" id="redo" disabled>重做</button>
-            <button type="button" id="del" disabled>刪除牆</button>
+            <button type="button" id="del" disabled>刪除</button>
             <button type="button" id="fit">顯示全圖</button>
           </div>
-          <label class="thick" for="thick">牆厚 <input id="thick" type="number" min="0.02" max="1" step="0.01" disabled> m</label>
+          <label class="thick" for="thick" id="thickCtl">牆厚 <input id="thick" type="number" min="0.02" max="1" step="0.01" disabled> m</label>
+          <label class="thick" for="openW" id="openWCtl" hidden>開口寬 <input id="openW" type="number" min="0.3" max="5" step="0.05"> m</label>
+          <button type="button" id="flip" hidden>換開門方向</button>
         </div>
         <div class="editcanvas" id="editCanvas"></div>
         <form class="scaleform" id="scaleForm" hidden>
@@ -126,6 +131,7 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
 <script src="js/detect.js"></script>
 <script src="js/vectorize.js"></script>
+<script src="js/openings.js"></script>
 <script src="js/plan.js"></script>
 <script src="js/sample.js"></script>
 <script src="js/scene.js"></script>

@@ -107,3 +107,53 @@ test('復原的狀態不會被之後的修改改到', () => {
   h.undo(p);
   assert.deepEqual(p.walls[0].b, [4, 0]);
 });
+
+test('在牆上加門窗：位置限制在牆內，寬度不超過牆長', () => {
+  const p = samplePlan();
+  const d = E.addOpening(p, 'w1', 'door', 0.1, 0.9);
+  assert.deepEqual([d.id, d.type, d.wall, d.offset, d.width, d.height, d.hinge, d.swing], ['o1', 'door', 'w1', 0.45, 0.9, 2.1, 'a', 'left']);
+  const win = E.addOpening(p, 'w1', 'window', 3.9, 1.2);
+  assert.deepEqual([win.id, win.offset, win.sill], ['o2', 3.4, 0.9]);
+  const big = E.addOpening(p, 'w2', 'window', 1.5, 9);
+  assert.deepEqual([big.width, big.offset], [2.9, 1.5]);
+  assert.equal(E.addOpening(p, 'nope', 'door', 1, 1), null);
+});
+
+test('移動門窗、改寬度、切換開門方向', () => {
+  const p = samplePlan();
+  const d = E.addOpening(p, 'w1', 'door', 2, 0.9);
+  E.moveOpening(p, d.id, 10);
+  assert.equal(d.offset, 3.55);
+  E.setOpeningWidth(p, d.id, 1.5);
+  assert.deepEqual([d.width, d.offset], [1.5, 3.25]);
+  const states = [];
+  for (let i = 0; i < 4; i++) { E.flipDoor(p, d.id); states.push(d.hinge + d.swing); }
+  assert.deepEqual(states, ['aright', 'bleft', 'bright', 'aleft']);
+});
+
+test('刪除牆會一起刪除牆上的門窗，復原會一起回來', () => {
+  const p = samplePlan();
+  const h = new E.History();
+  E.addOpening(p, 'w1', 'door', 2, 0.9);
+  E.addOpening(p, 'w2', 'window', 1.5, 1);
+  h.record(p);
+  E.deleteWall(p, 'w1');
+  assert.deepEqual(p.openings.map(o => o.wall), ['w2']);
+  h.undo(p);
+  assert.deepEqual(p.openings.map(o => o.wall), ['w1', 'w2']);
+});
+
+test('點選門窗與點在牆上的位置', () => {
+  const p = samplePlan();
+  const d = E.addOpening(p, 'w1', 'door', 2, 0.9);
+  assert.equal(E.hitOpening(p, [2.3, 0.05], 0.1), d);
+  assert.equal(E.hitOpening(p, [3, 0.05], 0.1), null);
+  assert.equal(E.projectOnWall(p.walls[1], [4.1, 1.2]), 1.2);
+});
+
+test('比例尺縮放也會縮放門窗', () => {
+  const p = samplePlan();
+  const d = E.addOpening(p, 'w1', 'door', 2, 0.8);
+  E.rescale(p, 1.5);
+  assert.deepEqual([d.offset, d.width, d.height], [3, 1.2, 2.1]);
+});
