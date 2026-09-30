@@ -1,0 +1,9 @@
+{
+  "name": "floorplan-3d",
+  "version": "0.1.0",
+  "private": true,
+  "description": "上傳房屋平面圖，自動產生 3D 模型",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
