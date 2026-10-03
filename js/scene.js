@@ -130,6 +130,41 @@
     let plan = null;
 
     // 地板材質：貼圖一張代表 size 公尺，房間地板的 UV 單位是公尺
+    // 外牆材質：貼圖照世界座標鋪（牆是同一個方塊拉長的，方塊本身的 UV 會被拉伸），
+    // 牆面朝 x 方向就用 (z, y)，朝 z 方向就用 (x, y)，所以不管牆多長，磚的大小都一樣
+    const extMats = new Map();
+    function extMat(id) {
+      const e = FPMaterials.exterior(id);
+      if (!e) return null;
+      if (extMats.has(e.id)) return extMats.get(e.id);
+      const c = document.createElement('canvas');
+      c.width = c.height = 512;
+      FPMaterials.drawExterior(c.getContext('2d'), e, 512);
+      const tex = new THREE.CanvasTexture(c);
+      tex.encoding = THREE.sRGBEncoding;
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: e.kind === 'paint' ? 0.9 : 0.8 });
+      mat.onBeforeCompile = sh => {
+        sh.uniforms.texSize = { value: e.size };
+        sh.vertexShader = 'varying vec3 vWPos;\nvarying vec3 vWNrm;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+          vec4 wp4 = vec4(transformed, 1.0);
+          vec3 wn = objectNormal;
+          #ifdef USE_INSTANCING
+            wp4 = instanceMatrix * wp4;
+            wn = mat3(instanceMatrix) * wn;
+          #endif
+          vWPos = (modelMatrix * wp4).xyz;
+          vWNrm = mat3(modelMatrix) * wn;`);
+        sh.fragmentShader = 'uniform float texSize;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+          THREE.ShaderChunk.map_fragment.replace(/vUv/g, 'wUv').replace('#ifdef USE_MAP', `#ifdef USE_MAP
+            vec3 an = abs(normalize(vWNrm));
+            vec2 wUv = (an.y > 0.7 ? vWPos.xz : an.x > an.z ? vec2(vWPos.z, vWPos.y) : vec2(vWPos.x, vWPos.y)) / texSize;`));
+      };
+      extMats.set(e.id, mat);
+      return mat;
+    }
+
     function floorMaterial(id) {
       const f = FPMaterials.floor(id);
       if (floorMats.has(f.id)) return floorMats.get(f.id);
@@ -229,6 +264,18 @@
       return shape;
     }
 
+    // 牆面材質的代號：房間有選牆色就用牆色；屋外和陽台、露台那一面用外牆材質（'ext:' + id）；
+    // 其他（含沒選外牆材質）是空字串 = 全屋牆面顏色。paints 為 false 時不看房間牆色（背景樓層用）
+    function sideKeys(plan, outdoor, paints) {
+      const houseExt = (plan.materials && plan.materials.exterior) || '';
+      return (r, w) => {
+        if (paints && r && r.paint) return r.paint;
+        const ext = w.ext || houseExt;
+        return (!r || outdoor.has(r.id)) && ext ? 'ext:' + ext : '';
+      };
+    }
+    const keyMat = id => !id ? wallMat : id.startsWith('ext:') ? extMat(id.slice(4)) || wallMat : paintMat(id);
+
     function setPlan(next, image) {
       plan = next;
       clear();
@@ -239,8 +286,7 @@
       const boxes = [], panes = [], rails = [], parts = { frame: [], leaf: [], handle: [] };
       const houseWall = plan.materials && plan.materials.wall;
       const roomAt = p => FPRooms.hitRoom(plan, p);
-      // 沒有房間的那一面（屋外）和沒選牆色的房間都用全屋的牆面顏色
-      const paintOf = r => (r && r.paint) || '';
+      const outdoor = FPRooms.outdoorRooms(plan), sideKey = sideKeys(plan, outdoor, true);
       for (const w of plan.walls) {
         const L = FPPlan.wallLength(w);
         if (!L) continue;
@@ -250,13 +296,13 @@
           // 玻璃欄杆：牆座照一般的牆上色，玻璃和金屬扶手另外畫
           if (w.kind === 'glass' && pc.y0 === 0) {
             for (const r of FPPlan.railingParts(w, pc.s0, pc.s1)) {
-              if (r.kind === 'curb') boxes.push({ w, L, ...r, key: '|' });
+              if (r.kind === 'curb') boxes.push({ w, L, ...r, key: sideKey(null, w) + '|' + sideKey(null, w) });
               else (r.kind === 'glass' ? panes : rails).push({ w, L, ...r });
             }
             continue;
           }
           for (const run of FPPlan.faceRooms(w, pc.s0, pc.s1, roomAt)) {
-            boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: paintOf(run.left) + '|' + paintOf(run.right) });
+            boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: sideKey(run.left, w) + '|' + sideKey(run.right, w) });
           }
         }
         for (const sp of FPPlan.openingSpans(w, ops)) {
@@ -314,7 +360,7 @@
         groups.get(b.key).push(b);
       }
       for (const [key, list] of groups) {
-        const [left, right] = key.split('|').map(id => id ? paintMat(id) : wallMat);
+        const [left, right] = key.split('|').map(keyMat);
         const mesh = instanced(list, [wallMat, wallMat, wallMat, wallMat, right, left]);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -373,7 +419,7 @@
       ceilings = new THREE.Group();
       const top = Math.max(0, ...plan.walls.map(w => w.height));
       // 每個室內房間蓋一片天花板，往外擴 0.2 公尺蓋住牆頂和門洞上方；陽台、露台（有欄杆的空間）不蓋
-      const outdoor = FPRooms.outdoorRooms(plan);
+      // outdoor：上面算外牆時已經找過有欄杆的房間
       const stairHoles = FPFurniture.stairsOf(plan).map(FPFurniture.footprint);   // 樓梯上方的天花板開洞
       for (const r of plan.rooms || []) {
         if (outdoor.has(r.id)) continue;
@@ -481,16 +527,22 @@
         const g = new THREE.Group();
         g.position.set(f.dx - center[0], f.y, f.dy - center[1]);
         const boxes = [], panes = [], rails = [];
+        const ctxKey = sideKeys(f.plan, FPRooms.outdoorRooms(f.plan), false), ctxRoomAt = p => FPRooms.hitRoom(f.plan, p);
         for (const w of f.slabOnly ? [] : f.plan.walls) {
           const L = FPPlan.wallLength(w);
           if (!L) continue;
           const ops = FPPlan.openingsOf(f.plan, w.id);
           for (const pc of FPPlan.wallPieces(w, ops)) {
             if (w.kind === 'glass' && pc.y0 === 0) {
-              for (const r of FPPlan.railingParts(w, pc.s0, pc.s1)) (r.kind === 'curb' ? boxes : r.kind === 'glass' ? panes : rails).push({ w, L, ...r });
+              for (const r of FPPlan.railingParts(w, pc.s0, pc.s1)) {
+                (r.kind === 'curb' ? boxes : r.kind === 'glass' ? panes : rails).push({ w, L, ...r, key: ctxKey(null, w) + '|' + ctxKey(null, w) });
+              }
               continue;
             }
-            boxes.push({ w, L, s0: pc.s0, s1: pc.s1, y0: pc.y0, y1: pc.y1, t: w.thickness });
+            // 外牆材質照實畫（從外面看整棟時看得到），室內那一面用全屋牆面顏色
+            for (const run of FPPlan.faceRooms(w, pc.s0, pc.s1, ctxRoomAt)) {
+              boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: ctxKey(run.left, w) + '|' + ctxKey(run.right, w) });
+            }
           }
           for (const sp of FPPlan.openingSpans(w, ops)) {
             if (sp.o.type !== 'window') continue;
@@ -498,7 +550,12 @@
             if (y1 > y0) panes.push({ w, L, s0: sp.s0, s1: sp.s1, y0, y1, t: 0.02 });
           }
         }
-        if (boxes.length) g.add(boxesMesh(boxes, wallMat));
+        const byKey = new Map();
+        for (const bx of boxes) { if (!byKey.has(bx.key)) byKey.set(bx.key, []); byKey.get(bx.key).push(bx); }
+        for (const [key, list] of byKey) {
+          const [left, right] = key.split('|').map(keyMat);
+          g.add(boxesMesh(list, [wallMat, wallMat, wallMat, wallMat, right, left]));
+        }
         if (panes.length) g.add(boxesMesh(panes, glassMat));
         if (rails.length) g.add(boxesMesh(rails, partMats.handle));
         for (const r of f.slabOnly ? [] : f.plan.rooms || []) {

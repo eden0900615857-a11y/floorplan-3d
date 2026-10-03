@@ -140,7 +140,11 @@
           <label for="wallPaint">全屋牆面顏色</label>
           <select id="wallPaint"></select>
         </div>
-        <p class="hint">個別房間要換牆色：到「2D 校正」點選房間，選「牆色」。</p>
+        <div class="ctl">
+          <label for="extMat">外牆材質</label>
+          <select id="extMat"></select>
+        </div>
+        <p class="hint">個別房間要換牆色：到「2D 校正」點選房間，選「牆色」。外牆材質套在牆朝屋外、朝陽台的那一面；個別牆面要換（例如一樓石材、入口木格柵），到「2D 校正」點選那面牆，選「外牆」。有好幾層時每層各自設定。</p>
         <p class="hint">家具：到「2D 校正」按「擺家具」，選好種類後點在圖上放下。放好可以拖曳移動、旋轉、修改尺寸，走進房子時會擋路。目前放了 <b id="furnCount" class="num">0</b> 件。</p>
       </div>
 
@@ -216,6 +220,7 @@
           </div>
           <label class="thick" for="thick" id="thickCtl">牆厚 <input id="thick" type="number" min="0.02" max="1" step="0.01" disabled> m</label>
           <label class="thick" for="wallKind" id="wallKindCtl" hidden>種類 <select id="wallKind"></select></label>
+          <label class="thick" for="wallExt" id="wallExtCtl" hidden>外牆 <select id="wallExt"></select></label>
           <label class="thick" for="openW" id="openWCtl" hidden>開口寬 <input id="openW" type="number" min="0.3" max="5" step="0.05"> m</label>
           <span class="thick" id="winCtl" hidden>
             <label class="thick" for="winKind">窗 <select id="winKind"></select></label>

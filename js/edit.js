@@ -105,6 +105,14 @@
     return w;
   }
 
+  // 這面牆朝屋外那一面的材質（FPMaterials.EXTERIORS 的 id），空字串表示跟全屋的外牆材質一樣
+  function setWallExt(plan, id, ext) {
+    const w = findWall(plan, id);
+    if (!w) return null;
+    if (ext) w.ext = ext; else delete w.ext;
+    return w;
+  }
+
   // 門的開向依序切換：左開 → 右開 → 門軸換邊左開 → 門軸換邊右開
   function flipDoor(plan, id) {
     const o = findOpening(plan, id);
@@ -331,7 +339,7 @@
   return {
     findWall, nextId, addWall, deleteWall, distToSegment, hitTest,
     findFurniture, addFurniture, deleteFurniture, moveFurniture, rotateFurniture, setFurnitureSize, setFurnitureColor,
-    findOpening, addOpening, deleteOpening, moveOpening, setOpeningWidth, setWindowSize, setWallKind, flipDoor, projectOnWall, hitOpening,
+    findOpening, addOpening, deleteOpening, moveOpening, setOpeningWidth, setWindowSize, setWallKind, setWallExt, flipDoor, projectOnWall, hitOpening,
     snapToEndpoint, snapOrtho, moveEndpoint, moveWall, rescale, scaleFactor, History
   };
 });

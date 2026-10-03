@@ -97,3 +97,13 @@ test('樓梯：往上的斜坡、樓梯洞、上下樓', () => {
   const c = W.collide([1.45, 3], W.rampSolids(up));
   assert.ok(c[0] < 1.3);
 });
+
+test('外牆材質清單：每種都能畫，找不到的回傳 null', () => {
+  assert.ok(M.EXTERIORS.length >= 6);
+  assert.equal(M.exterior('ext-wood').name, '木格柵');
+  assert.equal(M.exterior(''), null);
+  const calls = { n: 0 };
+  const ctx = new Proxy({}, { get: (t, k) => k in t ? t[k] : () => { calls.n++; }, set: (t, k, v) => { t[k] = v; return true; } });
+  for (const e of M.EXTERIORS) M.drawExterior(ctx, e, 64);
+  assert.ok(calls.n > 100);
+});

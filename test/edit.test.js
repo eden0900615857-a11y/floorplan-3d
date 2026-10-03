@@ -172,3 +172,10 @@ test('setWindowSize、setWallKind：窗台與窗高不超過牆高；牆可以�
   E2.setWallKind(plan, 'w1', '');
   assert.equal('kind' in plan.walls[0], false);
 });
+
+test('外牆材質：個別牆面指定與清除', () => {
+  const plan = { walls: [{ id: 'w1', a: [0, 0], b: [4, 0], thickness: 0.2, height: 2.8 }], openings: [] };
+  assert.equal(E.setWallExt(plan, 'w1', 'ext-stone').ext, 'ext-stone');
+  assert.equal(E.setWallExt(plan, 'w1', '').ext, undefined);
+  assert.equal(E.setWallExt(plan, 'nope', 'ext-stone'), null);
+});

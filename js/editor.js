@@ -623,6 +623,26 @@
       commit();
     }
 
+    function setWallExt(ext) {
+      const w = selected && FPEdit.findWall(plan, selected);
+      if (!w || (w.ext || '') === (ext || '')) return;
+      history.record(plan);
+      FPEdit.setWallExt(plan, w.id, ext);
+      commit();
+    }
+
+    // 全屋的外牆材質（存在目前方案的 materials.exterior）
+    function setExterior(id) {
+      if (!plan) return;
+      const cur = (plan.materials && plan.materials.exterior) || '';
+      if (cur === (id || '')) return;
+      history.record(plan);
+      const m = { ...(plan.materials || {}) };
+      if (id) m.exterior = id; else delete m.exterior;
+      plan.materials = m;
+      commit();
+    }
+
     function renameRoom(name) {
       const r = selRoom && findRoom(selRoom);
       name = (name || '').trim();
@@ -729,7 +749,7 @@
 
     return {
       setPlan, setUnderlay, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setFurnitureColor, setWallPaint, schemeOp,
-      setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, setWindowSize, setWallKind, flipDoor, renameRoom, setRoomFloor, setRoomPaint, rescale, cancel,
+      setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, setWindowSize, setWallKind, setWallExt, setExterior, flipDoor, renameRoom, setRoomFloor, setRoomPaint, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,
       get tool() { return tool; }

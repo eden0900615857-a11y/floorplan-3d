@@ -43,6 +43,8 @@
       $('thick').value = wall ? wall.thickness : '';
       $('wallKindCtl').hidden = !wall;
       if (wall) $('wallKind').value = wall.kind || '';
+      $('wallExtCtl').hidden = !wall;
+      if (wall) $('wallExt').value = wall.ext || '';
       const win = op && op.type === 'window' ? op : null;
       $('winCtl').hidden = !win;
       if (win) {
@@ -408,6 +410,7 @@
     syncSchemes();
     showQuantities();
     $('wallPaint').value = FPMaterials.wall(plan.materials && plan.materials.wall).id;
+    $('extMat').value = (plan.materials && FPMaterials.exterior(plan.materials.exterior) && plan.materials.exterior) || '';
     // 手動修改後，覆蓋率就不再代表目前的牆
     $('sCover').textContent = !edited && lastStats.coverage != null ? Math.round(lastStats.coverage * 100) + '%' : '–';
     $('sTime').textContent = lastStats.ms != null ? lastStats.ms.toFixed(0) + ' ms' : '–';
@@ -854,6 +857,16 @@
     $('wallPaint').appendChild(o);
   }
   $('wallPaint').addEventListener('change', () => editor.setWallPaint($('wallPaint').value));
+  // 外牆材質：全屋一個，個別牆面可以另外指定
+  for (const [sel, first] of [['extMat', '跟室內牆色一樣'], ['wallExt', '跟全屋一樣']]) {
+    for (const e of [{ id: '', name: first }].concat(FPMaterials.EXTERIORS)) {
+      const o = document.createElement('option');
+      o.value = e.id; o.textContent = e.name;
+      $(sel).appendChild(o);
+    }
+  }
+  $('extMat').addEventListener('change', () => editor.setExterior($('extMat').value));
+  $('wallExt').addEventListener('change', () => editor.setWallExt($('wallExt').value));
 
   // 第一人稱漫遊：鍵盤 WASD／方向鍵，或畫面上的按鈕（手機）
   const VIEW_TAG = $('viewTag').textContent;
