@@ -24,16 +24,25 @@
     return s;
   }
 
-  // 門窗兩側各有幾個房間：室內門兩面都要扣，外牆的窗只扣室內那一面
-  function roomSides(plan, o) {
+  // 門窗兩側的房間：室內門兩面都要扣，外牆的窗只扣室內那一面
+  function sideRooms(plan, o) {
     const w = plan.walls.find(x => x.id === o.wall);
     const L = w && FPPlan.wallLength(w);
-    if (!L) return 0;
+    if (!L) return [];
     const ux = (w.b[0] - w.a[0]) / L, uy = (w.b[1] - w.a[1]) / L;
     const c = [w.a[0] + ux * o.offset, w.a[1] + uy * o.offset], d = w.thickness / 2 + 0.15;
-    let n = 0;
-    for (const s of [1, -1]) if (FPRooms.hitRoom(plan, [c[0] - uy * d * s, c[1] + ux * d * s])) n++;
-    return n;
+    const rooms = [];
+    for (const s of [1, -1]) {
+      const r = FPRooms.hitRoom(plan, [c[0] - uy * d * s, c[1] + ux * d * s]);
+      if (r) rooms.push(r);
+    }
+    return rooms;
+  }
+  const roomSides = (plan, o) => sideRooms(plan, o).length;
+
+  // 房間的牆色：房間自己選的，沒選就是全屋的牆面顏色
+  function roomPaint(plan, r) {
+    return FPMaterials.wall(r.paint || (plan.materials && plan.materials.wall));
   }
 
   function estimate(plan) {
@@ -50,13 +59,25 @@
       .sort((a, b) => b.area - a.area);
 
     const H = plan.walls.length ? plan.walls.reduce((s, w) => s + w.height, 0) / plan.walls.length : 0;
-    let wall = (plan.rooms || []).reduce((s, r) => s + perimeter(r.polygon) * H, 0);
+    // 每個房間四周的牆面扣掉門窗，再依牆色加總
+    const roomWall = new Map((plan.rooms || []).map(r => [r, perimeter(r.polygon) * H]));
     for (const o of plan.openings || []) {
       const w = plan.walls.find(x => x.id === o.wall);
       const h = Math.min(o.height, w ? w.height : o.height);
-      wall -= o.width * h * roomSides(plan, o);
+      for (const r of sideRooms(plan, o)) roomWall.set(r, roomWall.get(r) - o.width * h);
     }
-    wall = r2(Math.max(0, wall));
+    const byPaint = new Map();
+    for (const [r, a] of roomWall) {
+      const p = roomPaint(plan, r);
+      const e = byPaint.get(p.id) || { id: p.id, name: p.name, area: 0, rooms: [] };
+      e.area += Math.max(0, a);
+      e.rooms.push(r.name);
+      byPaint.set(p.id, e);
+    }
+    const paints = [...byPaint.values()]
+      .map(e => ({ ...e, area: r2(e.area), liters: Math.ceil(r2(e.area) * COATS / PAINT_M2_PER_L) }))
+      .sort((a, b) => b.area - a.area);
+    const wall = r2(paints.reduce((s, p) => s + p.area, 0));
     const paint = FPMaterials.wall(plan.materials && plan.materials.wall);
 
     const counts = new Map();
@@ -71,9 +92,10 @@
       floors,
       floorTotal: r2(floors.reduce((s, f) => s + f.area, 0)),
       wall: { name: paint.name, area: wall, liters: Math.ceil(wall * COATS / PAINT_M2_PER_L) },
+      paints,
       furniture
     };
   }
 
-  return { WASTE, COATS, PAINT_M2_PER_L, perimeter, roomSides, estimate };
+  return { WASTE, COATS, PAINT_M2_PER_L, perimeter, roomSides, roomPaint, estimate };
 });
