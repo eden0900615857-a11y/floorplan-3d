@@ -121,3 +121,11 @@ test('房間牆色：各方案各自保存，材料用量依牆色分開算', ()
   assert.ok(Math.abs(q.paints[1].area - (31.36 - 1.89)) < 0.01);
   assert.ok(Math.abs(q.wall.area - (q.paints[0].area + q.paints[1].area)) < 0.01);
 });
+
+test('材料用量：陽台欄杆那一面不算油漆面積', () => {
+  const plan = house();
+  const before = Q.estimate(plan).wall.area;
+  plan.walls.find(w => w.id === 'w2').kind = 'glass';   // 臥室右側（長 3 公尺）改成玻璃欄杆
+  const after = Q.estimate(plan).wall.area;
+  assert.ok(Math.abs((before - after) - (3 - 0.2) * 2.8) < 0.01, before + ' → ' + after);
+});

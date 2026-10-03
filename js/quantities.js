@@ -66,6 +66,12 @@
       const h = Math.min(o.height, w ? w.height : o.height);
       for (const r of sideRooms(plan, o)) roomWall.set(r, roomWall.get(r) - o.width * h);
     }
+    // 陽台欄杆（矮牆、玻璃欄杆）不是要刷油漆的牆面：扣掉欄杆那一段的整面高度
+    for (const w of plan.walls) {
+      if (!w.kind) continue;
+      const len = Math.max(0, FPPlan.wallLength(w) - w.thickness);
+      for (const r of FPRooms.wallSideRooms(plan, w)) if (roomWall.has(r)) roomWall.set(r, roomWall.get(r) - len * H);
+    }
     const byPaint = new Map();
     for (const [r, a] of roomWall) {
       const p = roomPaint(plan, r);
