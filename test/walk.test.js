@@ -73,3 +73,27 @@ test('地板材質：找不到的 id 用預設值；重新找房間時保留材�
   const again = R.assign(R.detect(plan), plan.rooms);
   assert.equal(again[0].floor, 'tile-grey');
 });
+
+test('樓梯：往上的斜坡、樓梯洞、上下樓', () => {
+  const F = require('../js/furniture.js');
+  const plan = { walls: [], openings: [], rooms: [], furniture: [{ id: 's', model: 'stairs', pos: [2, 3], rotation: 0, w: 1, d: 4 }] };
+  // 正面朝 +y：第一階在 y = 5，頂端在 y = 1
+  const up = W.ramps(plan, 3);
+  assert.equal(up.length, 1);
+  assert.equal(W.rampAt(up, [2, 5.5]), null);
+  assert.ok(Math.abs(W.rampAt(up, [2, 4]).z - 0.75) < 1e-9);
+  assert.ok(Math.abs(W.rampAt(up, [2, 1.01]).z - 2.9925) < 1e-9);
+  assert.equal(W.floorChange(up, [2, 2]), 0);
+  assert.equal(W.floorChange(up, [2, 0.9]), 1);
+  assert.equal(W.floorChange(up, [3, 0.9]), 0);
+  // 樓上：同一個範圍是樓梯洞，高度 -3 → 0，走到靠近正面就下樓
+  const down = W.ramps({ furniture: [] }, 3, [{ poly: F.footprint(plan.furniture[0]), h: 3 }]);
+  assert.ok(Math.abs(W.rampAt(down, [2, 3]).z + 1.5) < 1e-9);
+  assert.equal(W.floorChange(down, [2, 4.8]), -1);
+  assert.equal(W.floorChange(down, [2, 0.9]), 0);
+  // 兩側擋路，樓梯洞的正面也擋
+  assert.equal(W.rampSolids(up).length, 2);
+  assert.equal(W.rampSolids(down).length, 3);
+  const c = W.collide([1.45, 3], W.rampSolids(up));
+  assert.ok(c[0] < 1.3);
+});

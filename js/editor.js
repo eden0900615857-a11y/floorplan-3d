@@ -179,6 +179,35 @@
         ctx.globalAlpha = 1;
       }
       const accent = css('--accent'), sel = css('--select'), ink = css('--ink');
+      // 多樓層：下面那一層的牆淡淡畫在底下當參考，樓梯洞畫虛線框和叉叉
+      if (under) {
+        ctx.fillStyle = ink;
+        ctx.globalAlpha = 0.12;
+        for (const w of under.walls) { if (FPPlan.wallLength(w)) { spanPath(w, 0, FPPlan.wallLength(w), w.thickness); ctx.fill(); } }
+        ctx.globalAlpha = 0.8;
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        for (const h of under.holes) {
+          const q = h.map(toScreen);
+          ctx.beginPath();
+          q.forEach((pt, n) => n ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1]));
+          ctx.closePath();
+          ctx.moveTo(q[0][0], q[0][1]); ctx.lineTo(q[2][0], q[2][1]);
+          ctx.moveTo(q[1][0], q[1][1]); ctx.lineTo(q[3][0], q[3][1]);
+          ctx.stroke();
+          const c = toScreen([h.reduce((a, p) => a + p[0], 0) / h.length, h.reduce((a, p) => a + p[1], 0) / h.length]);
+          ctx.setLineDash([]);
+          ctx.fillStyle = ink;
+          ctx.font = '11px "Noto Sans TC", system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('樓梯洞', c[0], c[1]);
+          ctx.setLineDash([6, 4]);
+        }
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
       // 房間：淡色底，房名與面積寫在離牆最遠的位置
       for (const r of plan.rooms || []) {
         ctx.beginPath();
@@ -682,6 +711,10 @@
       commit();
     }
 
+    // 下面那一層的參考（多樓層）：{walls, holes}，已經換成這一層的座標；null 表示不畫
+    let under = null;
+    function setUnderlay(u) { under = u && (u.walls.length || u.holes.length) ? u : null; draw(); }
+
     function setPlan(p, img, options) {
       plan = p;
       image = img;
@@ -695,7 +728,7 @@
     }
 
     return {
-      setPlan, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setFurnitureColor, setWallPaint, schemeOp,
+      setPlan, setUnderlay, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setFurnitureColor, setWallPaint, schemeOp,
       setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, setWindowSize, setWallKind, flipDoor, renameRoom, setRoomFloor, setRoomPaint, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,

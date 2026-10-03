@@ -124,5 +124,65 @@
     return { x: p[0], y: p[1], yaw, pitch: 0 };
   }
 
-  return { RADIUS, EYE, SPEED, solids, collide, step, start, clearance };
+  // 樓梯：把樓梯範圍（四個角，順序背左、背右、前右、前左；正面是第一階）變成斜坡。
+  // kind 'up' 是這一層往上的樓梯（高度 0 → h），'down' 是下面那一層上來的樓梯洞（高度 -h → 0）。
+  // along 是從正面量起的距離，side 是往右的距離（中心為 0）
+  function ramp(poly, h, kind) {
+    const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+    const front = mid(poly[3], poly[2]), back = mid(poly[0], poly[1]);
+    const len = Math.hypot(back[0] - front[0], back[1] - front[1]) || 1;
+    const w = Math.hypot(poly[2][0] - poly[3][0], poly[2][1] - poly[3][1]) || 1;
+    const ux = (back[0] - front[0]) / len, uy = (back[1] - front[1]) / len;
+    return { kind, poly, h, front, ux, uy, len, w };
+  }
+
+  function ramps(plan, floorH, below) {
+    const F = typeof FPFurniture !== 'undefined' ? FPFurniture : (typeof require === 'function' ? require('./furniture.js') : null);
+    const out = F ? F.stairsOf(plan).map(f => ramp(F.footprint(f), f.h || floorH, 'up')) : [];
+    for (const s of below || []) out.push(ramp(s.poly, s.h, 'down'));
+    return out;
+  }
+
+  // 點 p 在哪個斜坡上：回傳 {r, along, z}（z 是腳下的高度），不在任何斜坡上回傳 null
+  function rampAt(list, p) {
+    for (const r of list || []) {
+      const dx = p[0] - r.front[0], dy = p[1] - r.front[1];
+      const along = dx * r.ux + dy * r.uy, side = -dx * r.uy + dy * r.ux;
+      if (Math.abs(side) > r.w / 2 || along < 0 || along > r.len) continue;
+      const t = along / r.len;
+      return { r, along, z: r.kind === 'up' ? t * r.h : (t - 1) * r.h };
+    }
+    return null;
+  }
+
+  // 斜坡兩側會擋路（樓梯的扶手、側牆）；樓梯洞連正面也擋（洞口欄杆），只能從背面（樓梯頂端）走下去
+  function rampSolids(list) {
+    const out = [];
+    const seg = (a, b) => {
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L > 1e-6) out.push({ ax: a[0], ay: a[1], ux: (b[0] - a[0]) / L, uy: (b[1] - a[1]) / L, s0: 0, s1: L, h: 0.03 });
+    };
+    for (const r of list || []) {
+      const p = r.poly;
+      seg(p[3], p[0]);   // 左側
+      seg(p[2], p[1]);   // 右側
+      if (r.kind === 'down') seg(p[3], p[2]);   // 洞口正面
+    }
+    return out;
+  }
+
+  // 上下樓：走過往上樓梯的頂端回傳 +1，在樓梯洞裡往下走到底回傳 -1，否則 0
+  const BOTTOM = 0.35;     // 樓梯洞裡離正面這麼近就換到下面那一層（洞口正面有欄杆，人的半徑 0.2）
+  function floorChange(list, p) {
+    for (const r of list || []) {
+      const dx = p[0] - r.front[0], dy = p[1] - r.front[1];
+      const along = dx * r.ux + dy * r.uy, side = -dx * r.uy + dy * r.ux;
+      if (Math.abs(side) > r.w / 2) continue;
+      if (r.kind === 'up' && along > r.len && along < r.len + 0.5) return 1;
+      if (r.kind === 'down' && along >= 0 && along < BOTTOM) return -1;
+    }
+    return 0;
+  }
+
+  return { RADIUS, EYE, SPEED, solids, collide, step, start, clearance, ramps, rampAt, rampSolids, floorChange, BOTTOM };
 });
