@@ -99,6 +99,7 @@
       if (!f || typeof f.model !== 'string') errors.push(name + '：缺少家具種類 model');
       if (!f || !isPoint(f.pos)) errors.push(name + '：pos 必須是 [x, y] 座標');
       if (!(f && f.w > 0 && f.d > 0)) errors.push(name + '：寬、深必須大於 0');
+      if (f && f.color != null && !/^#[0-9a-f]{6}$/i.test(f.color)) errors.push(name + '：color 必須是 #rrggbb');
     });
     (plan.openings || []).forEach((o, i) => {
       const name = o && o.id ? o.id : '第 ' + (i + 1) + ' 個門窗';

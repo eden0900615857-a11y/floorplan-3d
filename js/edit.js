@@ -138,6 +138,15 @@
     return f;
   }
 
+  // 家具顏色：#rrggbb，null 或空字串表示用原本的顏色
+  function setFurnitureColor(plan, id, color) {
+    const f = findFurniture(plan, id);
+    if (!f) return null;
+    if (color && /^#[0-9a-f]{6}$/i.test(color)) f.color = color.toLowerCase();
+    else delete f.color;
+    return f;
+  }
+
   // 點到牆上的哪個位置（沿牆距離，公尺）
   function projectOnWall(wall, p) {
     const L = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
@@ -303,7 +312,7 @@
 
   return {
     findWall, nextId, addWall, deleteWall, distToSegment, hitTest,
-    findFurniture, addFurniture, deleteFurniture, moveFurniture, rotateFurniture, setFurnitureSize,
+    findFurniture, addFurniture, deleteFurniture, moveFurniture, rotateFurniture, setFurnitureSize, setFurnitureColor,
     findOpening, addOpening, deleteOpening, moveOpening, setOpeningWidth, flipDoor, projectOnWall, hitOpening,
     snapToEndpoint, snapOrtho, moveEndpoint, moveWall, rescale, scaleFactor, History
   };

@@ -31,6 +31,7 @@
       if (furn) {
         $('furnName').textContent = FPFurniture.item(furn.model) ? FPFurniture.item(furn.model).name : furn.model;
         $('furnW').value = furn.w; $('furnD').value = furn.d;
+        syncFurnColor(furn.color || '');
       }
       $('roomCtl').hidden = !room;
       if (room) { $('roomName').value = room.name; $('roomFloor').value = FPMaterials.floor(room.floor).id; }
@@ -60,7 +61,7 @@
   });
 
   const TOOL_HINTS = {
-    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳；家具可以拖曳，按 R 旋轉；點選房間可以改名。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
+    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳；家具可以拖曳，按 R 旋轉，也可以換顏色；點選房間可以改名。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
     wall: '在圖上拖曳畫出新牆。接近水平或垂直時會自動拉直（按住 Alt 可畫斜牆），靠近其他牆的端點會自動接上。',
     door: '點在牆上加一扇門（寬 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度，或按「換開門方向」。',
     window: '點在牆上加一扇窗（寬 1.2 公尺，窗台高 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度。',
@@ -549,6 +550,21 @@
   $('furnModel').addEventListener('change', () => editor.setPlaceModel($('furnModel').value));
   editor.setPlaceModel($('furnModel').value);
   $('furnRot').addEventListener('click', () => editor.rotateFurniture(90));
+  // 家具顏色：第一個是原本的顏色，其他是 FPFurniture.TINTS
+  for (const t of [{ id: '', name: '原本的顏色' }].concat(FPFurniture.TINTS)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch' + (t.id ? '' : ' original');
+    b.dataset.color = t.id;
+    b.title = t.name;
+    b.setAttribute('aria-label', t.name);
+    if (t.id) b.style.background = t.id;
+    b.addEventListener('click', () => { editor.setFurnitureColor(t.id); syncFurnColor(t.id); });
+    $('furnColors').appendChild(b);
+  }
+  function syncFurnColor(c) {
+    $('furnColors').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.color === c)));
+  }
   const setFurnSize = () => editor.setFurnitureSize(+$('furnW').value, +$('furnD').value);
   $('furnW').addEventListener('change', setFurnSize);
   $('furnD').addEventListener('change', setFurnSize);
