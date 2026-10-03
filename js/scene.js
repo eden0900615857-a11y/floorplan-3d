@@ -306,11 +306,16 @@
       scene.add(roomFloors);
       ceilings = new THREE.Group();
       const top = Math.max(0, ...plan.walls.map(w => w.height));
-      // 整棟房子蓋一片天花板，門洞上方（不屬於任何房間）也蓋得到
-      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(bb.maxX - bb.minX, bb.maxY - bb.minY), ceilingMat);
-      ceil.rotation.x = -Math.PI / 2;
-      ceil.position.y = top;
-      ceilings.add(ceil);
+      // 每個室內房間蓋一片天花板，往外擴 0.2 公尺蓋住牆頂和門洞上方；陽台、露台（有欄杆的空間）不蓋
+      const outdoor = FPRooms.outdoorRooms(plan);
+      for (const r of plan.rooms || []) {
+        if (outdoor.has(r.id)) continue;
+        const shape = new THREE.Shape(FPRooms.offset(r.polygon, 0.2).map(q => new THREE.Vector2(q[0] - cx, -(q[1] - cy))));
+        const ceil = new THREE.Mesh(new THREE.ShapeGeometry(shape), ceilingMat);
+        ceil.rotation.x = -Math.PI / 2;
+        ceil.position.y = top;
+        ceilings.add(ceil);
+      }
       ceilings.visible = !!walk;
       scene.add(ceilings);
 

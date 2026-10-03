@@ -184,5 +184,45 @@
     return (plan.rooms || []).find(r => pointInPolygon(p, r.polygon)) || null;
   }
 
-  return { PING, toPing, detect, assign, pointInPolygon, hitRoom };
+  // 牆的兩側各是哪個房間（在牆面外 0.15 公尺、牆的中點取樣），回傳 0–2 個房間
+  function wallSideRooms(plan, w) {
+    const L = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
+    if (!L) return [];
+    const ux = (w.b[0] - w.a[0]) / L, uy = (w.b[1] - w.a[1]) / L, d = w.thickness / 2 + 0.15;
+    const c = [(w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2], out = [];
+    for (const s of [1, -1]) {
+      const r = hitRoom(plan, [c[0] - uy * d * s, c[1] + ux * d * s]);
+      if (r && !out.includes(r)) out.push(r);
+    }
+    return out;
+  }
+
+  // 戶外空間：有一面是陽台欄杆（矮牆或玻璃欄杆）的房間，例如陽台、露台
+  function outdoorRooms(plan) {
+    const ids = new Set();
+    for (const w of plan.walls) if (w.kind) for (const r of wallSideRooms(plan, w)) ids.add(r.id);
+    return ids;
+  }
+
+  // 多邊形往外擴 m 公尺（每個頂點沿兩邊的法向量斜接，角度太尖時限制長度）
+  function offset(poly, m) {
+    let area = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      area += a[0] * b[1] - b[0] * a[1];
+    }
+    const sgn = area > 0 ? 1 : -1, n = poly.length;
+    // 邊 a→b 的外側法向量：面積為正（y 向下的座標是順時針）時是 (dy, −dx)
+    const normal = (a, b) => {
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      return [sgn * (b[1] - a[1]) / L, -sgn * (b[0] - a[0]) / L];
+    };
+    return poly.map((p, i) => {
+      const n1 = normal(poly[(i + n - 1) % n], p), n2 = normal(p, poly[(i + 1) % n]);
+      const k = Math.min(2, 1 / Math.max(0.25, (1 + n1[0] * n2[0] + n1[1] * n2[1]) / 2));
+      return [mm(p[0] + (n1[0] + n2[0]) / 2 * m * k), mm(p[1] + (n1[1] + n2[1]) / 2 * m * k)];
+    });
+  }
+
+  return { PING, toPing, detect, assign, pointInPolygon, hitRoom, wallSideRooms, outdoorRooms, offset };
 });
