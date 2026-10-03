@@ -10,6 +10,10 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   const WINDOW_LINE_COVER = 0.8;   // 一條窗線要蓋住缺口長度的比例
   const DOOR_ARC_COVER = 0.55;     // 開門弧上要有細線的取樣點比例
+  const DOOR_ARC_STRONG = 0.8;     // 弧線這麼完整就不必再看門片
+  const DOOR_LEAF_COVER = 0.6;     // 門片直線上要有線的比例
+  const ARC_SIDE = 0.18;           // 檢查弧內外兩側是否空白：半徑的 ±18%
+  const ARC_CONTRAST = 0.35;       // 弧上比兩側至少多這麼多比例的取樣點有線
 
   // ink：細線遮罩（原始深色像素扣掉牆），1 代表有線
   function makeInk(ink, w, h) {
@@ -41,6 +45,16 @@
     return false;
   }
 
+  // 門片：從門軸 (hp, cq) 往 side 那一側、垂直牆面的直線上有線的比例
+  function leaf(inkNear, dir, hp, cq, side, len) {
+    let hit = 0, n = 0;
+    for (let k = 0.15; k <= 0.951; k += 0.05) {
+      n++;
+      if (inkNear(...toXY(dir, hp, cq + side * len * k))) hit++;
+    }
+    return hit / n;
+  }
+
   // 開門弧：試四種可能（門軸在缺口的哪一端 × 門往哪一側開），回傳最符合的一種。
   // 施工圖的門軸通常畫在牆面上，也有畫在牆中心線上的，兩種都試。
   function findDoorArc(inkNear, dir, c, t, g0, g1) {
@@ -49,16 +63,26 @@
     for (const hinge of ['p0', 'p1']) {
       for (const side of [1, -1]) {
         for (const [r, cq] of [[gap, c + side * t / 2], [gap * 0.9, c + side * t / 2], [gap, c]]) {
-          let hit = 0, n = 0;
-          for (let deg = 12; deg <= 90; deg += 4) {
-            const th = deg * Math.PI / 180;
-            const along = hinge === 'p0' ? g0 + r * Math.cos(th) : g1 - r * Math.cos(th);
-            const across = cq + side * r * Math.sin(th);
-            n++;
-            if (inkNear(...toXY(dir, along, across))) hit++;
-          }
-          const score = hit / n;
-          if (score >= DOOR_ARC_COVER && (!best || score > best.score)) best = { hinge, side, score };
+          // 弧線本身，以及弧的內側、外側各一圈：真的開門弧是一條細線，兩側是空的；
+          // 家具、磁磚、浴缸這些密集的線條會讓三圈都有墨水
+          const ring = k => {
+            let hit = 0, n = 0;
+            for (let deg = 12; deg <= 90; deg += 4) {
+              const th = deg * Math.PI / 180, rr = r * k;
+              const along = hinge === 'p0' ? g0 + rr * Math.cos(th) : g1 - rr * Math.cos(th);
+              const across = cq + side * rr * Math.sin(th);
+              n++;
+              if (inkNear(...toXY(dir, along, across))) hit++;
+            }
+            return hit / n;
+          };
+          const score = ring(1);
+          if (score < DOOR_ARC_COVER || (best && score <= best.score)) continue;
+          const clutter = Math.max(ring(1 - ARC_SIDE), ring(1 + ARC_SIDE));
+          if (score - clutter < ARC_CONTRAST) continue;
+          // 只有一段弧（被家具擋住或剛好碰到椅子的圓弧）時，還要看得到門片：從門軸垂直牆面畫出去的直線
+          if (score < DOOR_ARC_STRONG && leaf(inkNear, dir, hinge === 'p0' ? g0 : g1, cq, side, gap) < DOOR_LEAF_COVER) continue;
+          best = { hinge, side, score, clutter };
         }
       }
     }
@@ -135,5 +159,5 @@
     return { segments: result, openings };
   }
 
-  return { detect, hasWindowLines, findDoorArc };
+  return { detect, hasWindowLines, findDoorArc, leaf };
 });
