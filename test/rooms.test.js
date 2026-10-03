@@ -73,3 +73,18 @@ test('點選房間', () => {
   assert.equal(R.hitRoom(p, [4.5, 2]).label[0] > 3, true);
   assert.equal(R.hitRoom(p, [10, 10]), null);
 });
+
+test('outdoorRooms、offset：有欄杆的房間是戶外空間；多邊形往外擴', () => {
+  const R = require('../js/rooms.js');
+  const w = (id, a, b, kind) => Object.assign({ id, a, b, thickness: 0.2, height: 2.8 }, kind ? { kind } : {});
+  const plan = {
+    walls: [w('w1', [0, 0], [4, 0]), w('w2', [4, 0], [4, 5]), w('w3', [4, 5], [0, 5], 'glass'), w('w4', [0, 5], [0, 0]), w('w5', [0, 3], [4, 3])],
+    rooms: [
+      { id: 'r1', name: '臥室', polygon: [[0.1, 0.1], [3.9, 0.1], [3.9, 2.9], [0.1, 2.9]], label: [2, 1.5] },
+      { id: 'r2', name: '陽台', polygon: [[0.1, 3.1], [3.9, 3.1], [3.9, 4.9], [0.1, 4.9]], label: [2, 4] }
+    ]
+  };
+  assert.deepEqual([...R.outdoorRooms(plan)], ['r2']);
+  assert.deepEqual(R.offset([[0, 0], [4, 0], [4, 3], [0, 3]], 0.1), [[-0.1, -0.1], [4.1, -0.1], [4.1, 3.1], [-0.1, 3.1]]);
+  assert.deepEqual(R.offset([[0, 0], [0, 3], [4, 3], [4, 0]], 0.1), [[-0.1, -0.1], [-0.1, 3.1], [4.1, 3.1], [4.1, -0.1]]);
+});
