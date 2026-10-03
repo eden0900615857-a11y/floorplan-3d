@@ -137,5 +137,55 @@
     return { segments: out, added };
   }
 
-  return { extractBands, mergeCollinear, coverage, extractWalls, closeBorder };
+  // 外牆缺口：格局圖的外牆常常沒畫完整（圖片裁掉、陽台只畫一條很細的欄杆線），房間就封不起來。
+  // 一面牆的末端沒有接到別的牆時，順著牆的方向往前找：maxLen 以內第一面橫過來的牆（或差不到 reach 就碰到的牆），
+  // 而且這段延伸線的其中一側一直到圖片邊緣都沒有牆（表示這裡是房子的外緣），就把牆延伸過去接上。
+  // 室內的隔間牆兩側都有房間，開放通道不會被誤接起來。
+  // 要在門窗辨識之後做（門窗的缺口已經接成一面牆），才不會把門窗旁邊的缺口當成外牆補起來。
+  // 直接修改傳進來的線段（門窗還指著這些線段）。opts：{tol 算是接到牆的距離, reach, maxLen}（像素），回傳延伸了幾次
+  function closeOuter(segs, w, h, opts) {
+    const tol = opts.tol, maxLen = opts.maxLen, reach = opts.reach || opts.tol;
+    const out = segs;
+    const box = s => (s.dir === 'h'
+      ? { x0: s.p0, x1: s.p1, y0: s.c - s.t / 2, y1: s.c + s.t / 2 }
+      : { x0: s.c - s.t / 2, x1: s.c + s.t / 2, y0: s.p0, y1: s.p1 });
+    const overlaps = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+    // 沿牆方向 p、垂直方向 q 的矩形換成影像座標
+    const rect = (dir, p0, p1, q0, q1) => (dir === 'h' ? { x0: p0, x1: p1, y0: q0, y1: q1 } : { x0: q0, x1: q1, y0: p0, y1: p1 });
+    const dangling = (s, end) => {
+      const x = s.dir === 'h' ? s[end] : s.c, y = s.dir === 'h' ? s.c : s[end];
+      return !out.some(o => {
+        if (o === s) return false;
+        const b = box(o);
+        return x >= b.x0 - tol && x <= b.x1 + tol && y >= b.y0 - tol && y <= b.y1 + tol;
+      });
+    };
+    let extended = 0;
+    for (const s of out) {
+      for (const end of ['p0', 'p1']) {
+        if (!dangling(s, end)) continue;
+        const sign = end === 'p1' ? 1 : -1, pos = s[end];
+        let hit = null;
+        for (const p of out) {
+          if (p.dir === s.dir) continue;
+          const d = sign * (p.c - pos);
+          if (d <= 0 || d > maxLen || s.c < p.p0 - reach || s.c > p.p1 + reach) continue;
+          if (!hit || d < sign * (hit.c - pos)) hit = p;
+        }
+        if (!hit) continue;
+        const a = Math.min(pos, hit.c) + tol, b = Math.max(pos, hit.c) - tol;
+        if (b <= a) continue;
+        const limit = s.dir === 'h' ? h : w;
+        const side = (q0, q1) => !out.some(o => o !== s && o !== hit && overlaps(box(o), rect(s.dir, a, b, q0, q1)));
+        if (!side(s.c + s.t / 2 + 1, limit) && !side(0, s.c - s.t / 2 - 1)) continue;
+        s[end] = hit.c;
+        if (s.c < hit.p0) hit.p0 = s.c;
+        if (s.c > hit.p1) hit.p1 = s.c;
+        extended++;
+      }
+    }
+    return extended;
+  }
+
+  return { extractBands, mergeCollinear, coverage, extractWalls, closeBorder, closeOuter };
 });

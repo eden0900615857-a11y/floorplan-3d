@@ -131,7 +131,8 @@
     // 柱子、管道間：兩個方向都很厚的色塊，各自當成一面短而厚的牆
     segs = segs.concat(blocks(mask, hr, vr, W, H, maxT, minLen, BLOCK_MAX * ppm));
     // 圖片裁到外牆時沿邊緣補牆，再把牆角接起來
-    segs = FPVectorize.closeBorder(segs, W, H).segments;
+    // 模型的牆在圖片邊緣常常差幾個像素沒碰到邊，碰邊的判斷放寬到 0.25 公尺
+    segs = FPVectorize.closeBorder(segs, W, H, Math.max(2, 0.25 * ppm)).segments;
     snapEnds(segs, SNAP * ppm);
     return { mask, segments: segs, coverage: FPVectorize.coverage(mask, W, H, segs) };
   }

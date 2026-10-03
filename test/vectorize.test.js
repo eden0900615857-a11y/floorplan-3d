@@ -85,3 +85,33 @@ test('圖片裁到外牆：兩面以上的牆碰到上緣，就沿著上緣補�
   assert.equal(closeBorder(r.segments, 100, 100).added.length, 0);
   assert.equal(closeBorder([segs[0], segs[3]], 100, 100).added.length, 0);
 });
+
+test('closeOuter：外緣的牆差一段沒接上時延伸過去，室內的開放通道不接', () => {
+  const V = require('../js/vectorize.js');
+  // 一間 100×60 的房子，右牆只畫了下半段（上半段是圖片外的空白）
+  const segs = [
+    { dir: 'h', c: 10, t: 4, p0: 10, p1: 110 },     // 上牆
+    { dir: 'h', c: 70, t: 4, p0: 10, p1: 110 },     // 下牆
+    { dir: 'v', c: 10, t: 4, p0: 10, p1: 70 },      // 左牆
+    { dir: 'v', c: 110, t: 4, p0: 45, p1: 70 },     // 右牆只有下半段
+    { dir: 'v', c: 60, t: 4, p0: 10, p1: 30 }       // 室內隔間牆，下面是開放通道
+  ];
+  const n = V.closeOuter(segs, 200, 100, { tol: 3, maxLen: 80 });
+  assert.strictEqual(n, 1);
+  assert.strictEqual(segs[3].p0, 10, '右牆往上接到上牆');
+  assert.strictEqual(segs[4].p1, 30, '隔間牆兩側都有房間，不延伸');
+});
+
+test('closeOuter：差不到 reach 就碰到的牆，延伸後兩面牆都接上', () => {
+  const V = require('../js/vectorize.js');
+  const segs = [
+    { dir: 'h', c: 10, t: 4, p0: 10, p1: 100 },     // 上牆短了 8 像素
+    { dir: 'v', c: 108, t: 4, p0: 40, p1: 70 },     // 右牆下半段
+    { dir: 'h', c: 70, t: 4, p0: 10, p1: 108 },
+    { dir: 'v', c: 10, t: 4, p0: 10, p1: 70 }
+  ];
+  assert.strictEqual(V.closeOuter(segs, 200, 100, { tol: 3, maxLen: 80 }), 0, 'reach 預設等於 tol，碰不到');
+  assert.strictEqual(V.closeOuter(segs, 200, 100, { tol: 3, reach: 10, maxLen: 80 }), 1);
+  assert.strictEqual(segs[1].p0, 10);
+  assert.strictEqual(segs[0].p1, 108);
+});
