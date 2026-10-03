@@ -163,5 +163,15 @@
     return { segments: result, openings };
   }
 
-  return { detect, hasWindowLines, findDoorArc, leaf };
+  // 用門寬推算比例：格局圖通常沒有標尺寸，但門洞大多是 90 公分左右。
+  // 取找到的門洞寬度（像素）的中位數當作 DOOR_WIDTH 公尺，回傳每公尺幾個像素；門少於 2 扇時無法推算，回傳 null
+  const DOOR_WIDTH = 0.9;
+  function scaleFromDoors(openings) {
+    const widths = openings.filter(o => o.type === 'door').map(o => o.g1 - o.g0).sort((a, b) => a - b);
+    if (widths.length < 2) return null;
+    const n = widths.length, mid = n % 2 ? widths[n >> 1] : (widths[n / 2 - 1] + widths[n / 2]) / 2;
+    return mid / DOOR_WIDTH;
+  }
+
+  return { detect, hasWindowLines, findDoorArc, leaf, scaleFromDoors, DOOR_WIDTH };
 });
