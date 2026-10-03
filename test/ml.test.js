@@ -81,17 +81,28 @@ test('walls：模型的牆變成直線段，門窗留下缺口', () => {
 test('openingHint + openings：規則找不到符號時，用模型判斷門窗', () => {
   const m = roomMap();
   const res = ML.walls(m, 120, 90, 10);
-  const ink = new Uint8Array(120 * 90);                        // 沒有任何細線：規則找不到
+  // 只有門片（從門軸往室內的一條直線），沒有開門弧：規則找不到
+  const ink = new Uint8Array(120 * 90);
+  for (let y = 62; y < 71; y++) ink[y * 120 + 50] = 1;
   const none = FPOpenings.detect(res.segments, ink, 120, 90, { minGap: 5, maxGap: 25 });
   assert.strictEqual(none.openings.length, 0);
   const ops = FPOpenings.detect(res.segments, ink, 120, 90, { minGap: 5, maxGap: 25, hint: ML.openingHint(m, 120, 90) });
   assert.deepStrictEqual(ops.openings.map(o => o.type).sort(), ['door', 'window']);
+  const door = ops.openings.find(o => o.type === 'door');
+  assert.deepStrictEqual([door.hinge, door.side], ['p0', -1], '門軸在門片那一端，往室內開');
   assert.strictEqual(ops.segments.length, 4, '門窗兩側的牆合併成一面');
   // 牆封起來，找得到房間，房名來自模型的類別
   const plan = FPPlan.fromSegments(ops.segments, { widthPx: 120, heightPx: 90, pxPerMeter: 10, wallHeight: 2.8 }, ops.openings);
   const rooms = ML.nameRooms(FPRooms.assign(FPRooms.detect(plan), []), m, 10, 120);
   assert.strictEqual(rooms.length, 1);
   assert.strictEqual(rooms[0].name, '臥室');
+});
+
+test('模型說是門、但缺口附近完全沒有門弧或門片：當作通道，不算門', () => {
+  const m = roomMap();
+  const res = ML.walls(m, 120, 90, 10);
+  const ops = FPOpenings.detect(res.segments, new Uint8Array(120 * 90), 120, 90, { minGap: 5, maxGap: 25, hint: ML.openingHint(m, 120, 90) });
+  assert.deepStrictEqual(ops.openings.map(o => o.type), ['window']);
 });
 
 test('openingHint：缺口裡沒有門窗像素就不算', () => {
