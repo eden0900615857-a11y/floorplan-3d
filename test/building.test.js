@@ -60,3 +60,13 @@ test('看整棟：上面的樓層往上疊，目前樓層只畫樓板', () => {
   const all = B.context(b, 1, true);
   assert.deepEqual(all.map(f => [f.name, f.y, !!f.slabOnly]), [['1 樓', -3.15, false], ['2 樓', 0, true], ['3 樓', 2.95, false]]);
 });
+
+test('樓梯洞：下面那一層的樓梯範圍換成這一層的座標', () => {
+  const low = box(0, 0, 6, 6);
+  low.furniture = [{ id: 'f1', model: 'stairs', pos: [2, 3], rotation: 0, w: 1, d: 3 }, { id: 'f2', model: 'sofa3', pos: [4, 4], rotation: 0, w: 2, d: 1 }];
+  const b = B.wrap(low);
+  B.addFloor(b, box(1, 1, 7, 7));
+  assert.deepEqual(B.stairHoles(b, 0), []);
+  assert.deepEqual(B.stairHoles(b), [[[2.5, 2.5], [3.5, 2.5], [3.5, 5.5], [2.5, 5.5]]]);
+  assert.deepEqual(B.context(b, 1)[0].holes, []);
+});

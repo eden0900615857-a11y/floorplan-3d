@@ -178,6 +178,57 @@
     }
 
     // plan：平面圖 JSON；image：原圖（Canvas 或 Image），有的話貼在地板上
+    // 多樓層的樓梯洞：這一層地板要挖掉的範圍（下面那一層的樓梯，平面圖座標），由 setHoles 設定
+    let floorHoles = [];
+    function setHoles(list) { floorHoles = list || []; }
+    // 多邊形（平面圖座標）→ THREE.Shape，挖掉 holes。洞超出多邊形時先裁到多邊形裡面（多邊形是凸的才裁，否則只挖完全在裡面的洞）
+    const area2 = poly => poly.reduce((a, p, i) => { const q = poly[(i + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0);
+    function convex(poly) {
+      let sign = 0;
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i], b = poly[(i + 1) % poly.length], c = poly[(i + 2) % poly.length];
+        const z = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+        if (Math.abs(z) < 1e-9) continue;
+        if (sign && Math.sign(z) !== sign) return false;
+        sign = Math.sign(z);
+      }
+      return true;
+    }
+    function clip(subject, clipper) {
+      const s = Math.sign(area2(clipper)) || 1;
+      const inside = (p, a, b) => s * ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) >= 0;
+      let out = subject;
+      for (let i = 0; i < clipper.length && out.length; i++) {
+        const a = clipper[i], b = clipper[(i + 1) % clipper.length], inp = out;
+        out = [];
+        for (let j = 0; j < inp.length; j++) {
+          const p = inp[j], q = inp[(j + 1) % inp.length], pi = inside(p, a, b), qi = inside(q, a, b);
+          if (pi) out.push(p);
+          if (pi !== qi) {
+            const dx = q[0] - p[0], dy = q[1] - p[1], ex = b[0] - a[0], ey = b[1] - a[1];
+            const t = ((a[0] - p[0]) * ey - (a[1] - p[1]) * ex) / (dx * ey - dy * ex);
+            out.push([p[0] + dx * t, p[1] + dy * t]);
+          }
+        }
+      }
+      return out;
+    }
+    function holedShape(poly, holes, cx, cy) {
+      const v = q => new THREE.Vector2(q[0] - cx, -(q[1] - cy));
+      const shape = new THREE.Shape(poly.map(v));
+      const isConvex = convex(poly);
+      for (const h of holes || []) {
+        let hole = null;
+        if (h.every(p => FPRooms.pointInPolygon(p, poly))) hole = h;
+        else if (isConvex) hole = clip(h, poly);
+        if (!hole || hole.length < 3 || Math.abs(area2(hole)) < 0.02) continue;
+        // 洞貼著外框時往內縮一點點，三角化才不會出錯
+        const mx = hole.reduce((a, p) => a + p[0], 0) / hole.length, my = hole.reduce((a, p) => a + p[1], 0) / hole.length;
+        shape.holes.push(new THREE.Path(hole.map(p => v([mx + (p[0] - mx) * 0.995, my + (p[1] - my) * 0.995]))));
+      }
+      return shape;
+    }
+
     function setPlan(next, image) {
       plan = next;
       clear();
@@ -296,7 +347,7 @@
       // 房間地板：平面圖的 (x, y) 對應 3D 的 (x, 0, y)，稍微高於原圖，避免互相閃爍
       roomFloors = new THREE.Group();
       for (const r of plan.rooms || []) {
-        const shape = new THREE.Shape(r.polygon.map(q => new THREE.Vector2(q[0] - cx, -(q[1] - cy))));
+        const shape = holedShape(r.polygon, floorHoles, cx, cy);
         const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMaterial(r.floor));
         mesh.rotation.x = -Math.PI / 2;
         mesh.position.y = 0.002;
@@ -308,9 +359,10 @@
       const top = Math.max(0, ...plan.walls.map(w => w.height));
       // 每個室內房間蓋一片天花板，往外擴 0.2 公尺蓋住牆頂和門洞上方；陽台、露台（有欄杆的空間）不蓋
       const outdoor = FPRooms.outdoorRooms(plan);
+      const stairHoles = FPFurniture.stairsOf(plan).map(FPFurniture.footprint);   // 樓梯上方的天花板開洞
       for (const r of plan.rooms || []) {
         if (outdoor.has(r.id)) continue;
-        const shape = new THREE.Shape(FPRooms.offset(r.polygon, 0.2).map(q => new THREE.Vector2(q[0] - cx, -(q[1] - cy))));
+        const shape = holedShape(FPRooms.offset(r.polygon, 0.2), stairHoles, cx, cy);
         const ceil = new THREE.Mesh(new THREE.ShapeGeometry(shape), ceilingMat);
         ceil.rotation.x = -Math.PI / 2;
         ceil.position.y = top;
@@ -334,7 +386,7 @@
           furniture.add(mesh);
           continue;
         }
-        for (const b of FPFurniture.parts(f)) {
+        for (const b of FPFurniture.parts(f, FPBuilding.floorHeight(plan))) {
           if (!colorMats.has(b.color)) colorMats.set(b.color, new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.75 }));
           const mesh = new THREE.Mesh(b.shape === 'cyl' ? cyl : box, b.glass ? glassMat : colorMats.get(b.color));
           mesh.position.set(b.x - cx, b.z0, b.y - cy);
@@ -435,21 +487,37 @@
         if (panes.length) g.add(boxesMesh(panes, glassMat));
         if (rails.length) g.add(boxesMesh(rails, partMats.handle));
         for (const r of f.slabOnly ? [] : f.plan.rooms || []) {
-          const shape = new THREE.Shape(r.polygon.map(q => new THREE.Vector2(q[0], -q[1])));
+          const shape = holedShape(r.polygon, f.holes, 0, 0);
           const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMaterial(r.floor));
           mesh.rotation.x = -Math.PI / 2;
           mesh.position.y = 0.002;
           mesh.receiveShadow = true;
           g.add(mesh);
         }
-        // 樓板：室內牆（不含陽台的矮牆、欄杆）的外框往外 0.1 公尺，蓋在這一層的牆頂上（也就是上一層的地板下面）
+        // 樓梯（其他家具不畫）
+        if (!f.slabOnly) {
+          for (const st of FPFurniture.stairsOf(f.plan)) {
+            for (const b of FPFurniture.parts(st, FPBuilding.floorHeight(f.plan))) {
+              if (!colorMats.has(b.color)) colorMats.set(b.color, new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.75 }));
+              const mesh = new THREE.Mesh(box, colorMats.get(b.color));
+              mesh.position.set(b.x, b.z0, b.y);
+              mesh.rotation.y = -b.rotation * Math.PI / 180;
+              mesh.scale.set(Math.max(0.005, b.w), Math.max(0.005, b.z1 - b.z0), Math.max(0.005, b.d));
+              g.add(mesh);
+            }
+          }
+        }
+        // 樓板：室內牆（不含陽台的矮牆、欄杆）的外框往外 0.1 公尺，蓋在這一層的牆頂上（也就是上一層的地板下面），
+        // 這一層的樓梯上方開洞
         const wb = FPBuilding.wallBox(f.plan, true);
         const top = FPBuilding.floorHeight(f.plan) - FPBuilding.SLAB;
         ctxRange = [Math.min(ctxRange[0], f.y), Math.max(ctxRange[1], f.y + top + FPBuilding.SLAB)];
         if (wb) {
-          const slab = new THREE.Mesh(box, slabMat);
-          slab.position.set((wb.minX + wb.maxX) / 2, top, (wb.minY + wb.maxY) / 2);
-          slab.scale.set(wb.maxX - wb.minX + 0.2, FPBuilding.SLAB, wb.maxY - wb.minY + 0.2);
+          const x0 = wb.minX - 0.1, x1 = wb.maxX + 0.1, y0 = wb.minY - 0.1, y1 = wb.maxY + 0.1;
+          const shape = holedShape([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], FPFurniture.stairsOf(f.plan).map(FPFurniture.footprint), 0, 0);
+          const slab = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: FPBuilding.SLAB, bevelEnabled: false }), slabMat);
+          slab.rotation.x = -Math.PI / 2;
+          slab.position.y = top;
           slab.castShadow = slab.receiveShadow = true;
           g.add(slab);
         }
@@ -557,7 +625,7 @@
     }
 
     return {
-      setPlan, setContext, resetCamera, viewWhole, setWalk, setLight, snapshot,
+      setPlan, setContext, setHoles, resetCamera, viewWhole, setWalk, setLight, snapshot,
       get walking() { return !!walk; },
       // 漫遊時的移動輸入：{forward, back, left, right, turnLeft, turnRight, fast}
       setInput(key, value) { if (walk) walk.input[key] = value; }

@@ -199,3 +199,15 @@ test('地毯在最下層：後放的地毯不會蓋住茶几', () => {
   assert.equal(F.hit(plan, [2.9, 1.5]).id, 'f2');
   assert.deepEqual(F.layered(plan).map(f => f.id), ['f2', 'f1']);
 });
+
+test('樓梯：踏階高度跟著樓高，最上面一階到樓高', () => {
+  const st = { id: 's', model: 'stairs', pos: [0, 0], rotation: 0, w: 1, d: 3.6 };
+  const treads = h => F.parts(st, h).filter(p => p.color === F.COLORS.stair);
+  assert.equal(treads(2.95).length, 16);
+  assert.ok(Math.abs(Math.max(...treads(2.95).map(p => p.z1)) - 2.95) < 1e-9);
+  assert.equal(treads(3.6).length, 20);
+  // 第一階在正面（+y），最上面一階在背面
+  const t = treads(2.95);
+  assert.ok(t[0].y > t[t.length - 1].y);
+  assert.deepEqual(F.stairsOf({ furniture: [st, { model: 'sofa3' }] }), [st]);
+});

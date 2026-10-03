@@ -12,7 +12,8 @@
   const C = {
     fabric: '#8C96A3', cushion: '#A7B0BA', wood: '#B0845A', darkwood: '#6E4E36', white: '#F1F0EC',
     linen: '#E9E4DA', pillow: '#F7F5F0', black: '#2B2E33', steel: '#C9CDD1', ceramic: '#FAFAF8', green: '#6F8F5E',
-    stone: '#D9D4CB', gap: '#9A9C9E', screen: '#1F2A35', chrome: '#AEB4BA', glass: '#CFE6F2', mirror: '#D5DEE3'
+    stone: '#D9D4CB', gap: '#9A9C9E', screen: '#1F2A35', chrome: '#AEB4BA', glass: '#CFE6F2', mirror: '#D5DEE3',
+    stair: '#B48A60', riser: '#EDEBE6'
   };
   // parts：[x0, x1, y0, y1, z0, z1, 顏色, 形狀]，x、y 是寬、深的比例（y 0 是背面、1 是正面），z 是高度的比例（可以超過 1，例如洗手台上方的鏡子）。
   // 形狀省略是方塊；'cyl' 是貼著這個範圍的橢圓柱（馬桶、水龍頭、爐口）。顏色 glass 是半透明玻璃。
@@ -97,9 +98,29 @@
     { id: 'lamp-floor', mesh: 'lamp_standing', name: '落地燈', cat: '其他', w: 0.4, d: 0.4, h: 1.6, parts: [
       [0.3, 0.7, 0.3, 0.7, 0, 0.03, 'black'], [0.47, 0.53, 0.47, 0.53, 0.03, 0.8, 'black'], [0.1, 0.9, 0.1, 0.9, 0.8, 1, 'linen']] },
     { id: 'plant', mesh: 'cactus_medium_A', name: '盆栽', cat: '其他', w: 0.4, d: 0.4, h: 1.2, parts: [
-      [0.2, 0.8, 0.2, 0.8, 0, 0.3, 'darkwood'], [0, 1, 0, 1, 0.3, 1, 'green']] }
+      [0.2, 0.8, 0.2, 0.8, 0, 0.3, 'darkwood'], [0, 1, 0, 1, 0.3, 1, 'green']] },
+    // 樓梯：踏階依高度產生（stairParts），高度預設是這一層的樓高（牆高加樓板），往後面（背面）爬上去
+    { id: 'stairs', name: '直樓梯', cat: '樓梯', w: 0.9, d: 3.6, h: 2.95, stairs: true, parts: [[0, 1, 0, 1, 0, 1, 'stair']] }
   ];
-  const CATS = ['客廳', '臥室', '餐廚', '衛浴', '其他'];
+  const CATS = ['客廳', '臥室', '餐廚', '衛浴', '樓梯', '其他'];
+  const RISER = 0.18;   // 每階大約的高度（公尺）
+
+  // 直樓梯的踏階和扶手（格式同 CATALOG 的 parts，z 已經是比例）：正面（y = 1）是第一階，往背面爬到頂
+  function stairParts(h) {
+    const n = Math.max(2, Math.round(h / RISER)), out = [], railZ = 0.9 / h, T = 0.05 / h;
+    for (let i = 0; i < n; i++) {
+      const y0 = 1 - (i + 1) / n, y1 = 1 - i / n, z = (i + 1) / n;
+      out.push([0, 1, y0, y1, z - T, z, 'stair']);               // 踏板
+      out.push([0, 1, y1 - 0.004, y1, 0, z - T, 'riser']);      // 踢板（看起來像實心的樓梯）
+      out.push([0.97, 1, y0, y1, 0, z, 'riser']);               // 靠牆那一側的側板
+      // 欄杆立柱和扶手（跟著踏階一段一段），最高到上一層的地板，不會穿出去
+      const top = Math.min(1, z + railZ);
+      if (top - z < 0.3 / h) continue;
+      if (i % 2 === 0) out.push([0.03, 0.05, (y0 + y1) / 2 - 0.004, (y0 + y1) / 2 + 0.004, z, top, 'black']);
+      out.push([0.02, 0.06, y0, y1, top, top + 0.04 / h, 'darkwood']);
+    }
+    return out;
+  }
   // 家具換色：換掉家具的主色（模型面積最大的色塊；方塊家具是第一個方塊的顏色），id 就是存檔的 color
   const TINTS = [
     { id: '#f2f0eb', name: '白' }, { id: '#e6dcc8', name: '米白' }, { id: '#b9bcbe', name: '淺灰' },
@@ -151,12 +172,13 @@
   }
 
   // 3D 用的方塊或橢圓柱：中心 (x, y) 在平面圖座標、寬 w 深 d、底 z0 頂 z1（公尺），rotation 同家具，shape 是 'box' 或 'cyl'
-  function parts(f) {
+  // floorH：這一層的樓高，樓梯沒有另外設定高度時用它
+  function parts(f, floorH) {
     const def = item(f.model);
     if (!def) return [];
-    const h = f.h || def.h, { ux, fy } = axes(f);
+    const h = f.h || (def.stairs && floorH) || def.h, { ux, fy } = axes(f);
     const mainKey = def.parts[0][6];
-    return def.parts.map(([x0, x1, y0, y1, z0, z1, c, shape]) => {
+    return (def.stairs ? stairParts(h) : def.parts).map(([x0, x1, y0, y1, z0, z1, c, shape]) => {
       const sx = ((x0 + x1) / 2 - 0.5) * f.w, sy = ((y0 + y1) / 2 - 0.5) * f.d;
       return {
         x: f.pos[0] + ux[0] * sx + fy[0] * sy, y: f.pos[1] + ux[1] * sx + fy[1] * sy,
@@ -175,5 +197,10 @@
     return { ax: f.pos[0] - ux[0] * f.w / 2, ay: f.pos[1] - ux[1] * f.w / 2, ux: ux[0], uy: ux[1], s0: 0, s1: f.w, h: f.d / 2 };
   }
 
-  return { CATALOG, CATS, TINTS, COLORS: C, item, footprint, contains, layered, hit, parts, solid };
+  // 平面圖上的樓梯（多樓層用：樓梯上面那一層的樓板要開洞）
+  function stairsOf(plan) {
+    return (plan.furniture || []).filter(f => { const def = item(f.model); return !!def && !!def.stairs; });
+  }
+
+  return { CATALOG, CATS, TINTS, COLORS: C, item, footprint, contains, layered, hit, parts, solid, stairsOf, stairParts };
 });
