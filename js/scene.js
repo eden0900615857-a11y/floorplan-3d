@@ -378,7 +378,8 @@
     }
 
     // 多樓層：目前樓層下面的樓層只畫牆、窗玻璃、地板和樓板，當作從旁邊看整棟房子的背景（不擋漫遊）。
-    // list：[{plan, dx, dy, y}]，dx、dy 是那一層平面圖座標換到目前樓層座標的位移，y 是高度（往下為負）
+    // 看整棟時也畫上面的樓層，slabOnly 的那一筆是目前樓層，只畫它頂上的樓板。
+    // list：[{plan, dx, dy, y, slabOnly}]，dx、dy 是那一層平面圖座標換到目前樓層座標的位移，y 是高度（往下為負）
     let context = null;
     const slabMat = new THREE.MeshStandardMaterial({ color: 0xd9dcdf, roughness: 0.9 });
     function boxesMesh(list, mat) {
@@ -406,17 +407,24 @@
       }
       // 不是最下面那一層時，不畫貼原圖的大地板，才看得到下面的樓層
       if (floor) floor.visible = !(list && list.length);
+      ctxRange = [0, 3];
       if (!list || !list.length) return;
       context = new THREE.Group();
       for (const f of list) {
         const g = new THREE.Group();
         g.position.set(f.dx - center[0], f.y, f.dy - center[1]);
-        const boxes = [], panes = [];
-        for (const w of f.plan.walls) {
+        const boxes = [], panes = [], rails = [];
+        for (const w of f.slabOnly ? [] : f.plan.walls) {
           const L = FPPlan.wallLength(w);
           if (!L) continue;
           const ops = FPPlan.openingsOf(f.plan, w.id);
-          for (const pc of FPPlan.wallPieces(w, ops)) boxes.push({ w, L, s0: pc.s0, s1: pc.s1, y0: pc.y0, y1: pc.y1, t: w.thickness });
+          for (const pc of FPPlan.wallPieces(w, ops)) {
+            if (w.kind === 'glass' && pc.y0 === 0) {
+              for (const r of FPPlan.railingParts(w, pc.s0, pc.s1)) (r.kind === 'curb' ? boxes : r.kind === 'glass' ? panes : rails).push({ w, L, ...r });
+              continue;
+            }
+            boxes.push({ w, L, s0: pc.s0, s1: pc.s1, y0: pc.y0, y1: pc.y1, t: w.thickness });
+          }
           for (const sp of FPPlan.openingSpans(w, ops)) {
             if (sp.o.type !== 'window') continue;
             const H = FPPlan.wallHeight(w), y0 = Math.min(sp.o.sill || 0, H), y1 = Math.min(H, y0 + sp.o.height);
@@ -425,7 +433,8 @@
         }
         if (boxes.length) g.add(boxesMesh(boxes, wallMat));
         if (panes.length) g.add(boxesMesh(panes, glassMat));
-        for (const r of f.plan.rooms || []) {
+        if (rails.length) g.add(boxesMesh(rails, partMats.handle));
+        for (const r of f.slabOnly ? [] : f.plan.rooms || []) {
           const shape = new THREE.Shape(r.polygon.map(q => new THREE.Vector2(q[0], -q[1])));
           const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMaterial(r.floor));
           mesh.rotation.x = -Math.PI / 2;
@@ -433,10 +442,11 @@
           mesh.receiveShadow = true;
           g.add(mesh);
         }
-        // 樓板：牆的外框往外 0.1 公尺，蓋在這一層的牆頂上（也就是上一層的地板下面）
-        const wb = FPBuilding.wallBox(f.plan);
+        // 樓板：室內牆（不含陽台的矮牆、欄杆）的外框往外 0.1 公尺，蓋在這一層的牆頂上（也就是上一層的地板下面）
+        const wb = FPBuilding.wallBox(f.plan, true);
+        const top = FPBuilding.floorHeight(f.plan) - FPBuilding.SLAB;
+        ctxRange = [Math.min(ctxRange[0], f.y), Math.max(ctxRange[1], f.y + top + FPBuilding.SLAB)];
         if (wb) {
-          const top = FPBuilding.floorHeight(f.plan) - FPBuilding.SLAB;
           const slab = new THREE.Mesh(box, slabMat);
           slab.position.set((wb.minX + wb.maxX) / 2, top, (wb.minY + wb.maxY) / 2);
           slab.scale.set(wb.maxX - wb.minX + 0.2, FPBuilding.SLAB, wb.maxY - wb.minY + 0.2);
@@ -497,6 +507,15 @@
       camera.lookAt(camera.position.x + dx, camera.position.y + dy, camera.position.z + dz);
     }
 
+    // 看整棟：從斜前方稍微低一點看整棟房子的外觀（高度含上下所有樓層）
+    let ctxRange = [0, 3];
+    function viewWhole() {
+      const lo = ctxRange[0], hi = ctxRange[1], mid = (lo + hi) / 2, d = Math.max(span, (hi - lo) * 1.6);
+      camera.position.set(d * 0.75, mid + d * 0.45, d * 1.05);
+      controls.target.set(0, mid, 0);
+      controls.update();
+    }
+
     function resetCamera() {
       camera.position.set(span * 0.1, span * 1.0, span * 0.95);
       controls.target.set(0, 0, 0);
@@ -538,7 +557,7 @@
     }
 
     return {
-      setPlan, setContext, resetCamera, setWalk, setLight, snapshot,
+      setPlan, setContext, resetCamera, viewWhole, setWalk, setLight, snapshot,
       get walking() { return !!walk; },
       // 漫遊時的移動輸入：{forward, back, left, right, turnLeft, turnRight, fast}
       setInput(key, value) { if (walk) walk.input[key] = value; }

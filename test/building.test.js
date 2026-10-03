@@ -50,3 +50,13 @@ test('removeFloor、rename：至少留一層；刪掉目前樓層下面的樓層
   assert.equal(B.removeFloor(b, 0), false);
   assert.equal(b.floors.length, 1);
 });
+
+test('看整棟：上面的樓層往上疊，目前樓層只畫樓板', () => {
+  const b = B.wrap(box(0, 0, 4, 4, 3));
+  B.addFloor(b, box(0, 0, 4, 4, 2.8));
+  B.addFloor(b, box(0, 0, 4, 4, 2.5));
+  b.active = 1;
+  assert.deepEqual(B.context(b).map(f => f.y), [-3.15]);
+  const all = B.context(b, 1, true);
+  assert.deepEqual(all.map(f => [f.name, f.y, !!f.slabOnly]), [['1 樓', -3.15, false], ['2 樓', 0, true], ['3 樓', 2.95, false]]);
+});

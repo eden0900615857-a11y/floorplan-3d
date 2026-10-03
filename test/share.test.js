@@ -50,3 +50,18 @@ test('網址解析與壞掉的連結', async () => {
   const raw = 'j' + Buffer.from(JSON.stringify(bad)).toString('base64url');
   await assert.rejects(Sh.decode(raw), /有問題/);
 });
+
+test('整棟房子：每一層都分享出去，原圖不在', async () => {
+  const b = { version: 1, type: 'building', active: 1, floors: [
+    { id: 'f1', name: '1 樓', offset: [0, 0], plan: house(), edited: true },
+    { id: 'f2', name: '2 樓', offset: [0.12345, -1], plan: house() }] };
+  const back = await Sh.decode(await Sh.encode(b));
+  assert.equal(back.type, 'building');
+  assert.equal(back.active, 1);
+  assert.deepEqual(back.floors.map(f => [f.name, f.offset]), [['1 樓', [0, 0]], ['2 樓', [0.123, -1]]]);
+  assert.equal(back.floors[1].plan.source.image, undefined);
+  assert.deepEqual(back.floors[0].plan.walls, house().walls);
+  b.floors[1].plan.walls = [];
+  b.floors[1].plan.walls.push({ id: 'x', a: [0, 0], b: [0, 0] });
+  await assert.rejects(Sh.decode(await Sh.encode(b)), /有問題/);
+});

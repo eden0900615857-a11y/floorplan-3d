@@ -183,6 +183,15 @@
     $('floorAdd').textContent = pendingFloor ? '取消新增樓層' : '新增樓層';
   }
 
+  // 3D 要畫的其他樓層：平常只畫下面的樓層，按「看整棟」連上面的樓層也畫
+  let wholeHouse = false;
+  function syncContext() {
+    const many = !!building && building.floors.length > 1;
+    $('wholeHouse').hidden = !many;
+    $('wholeHouse').setAttribute('aria-pressed', many && wholeHouse ? 'true' : 'false');
+    view3d.setContext(building ? FPBuilding.context(building, building.active, many && wholeHouse) : []);
+  }
+
   function switchFloor(i) {
     if (!building || !building.floors[i] || i === building.active) return;
     save();
@@ -344,7 +353,7 @@
     const image = src ? src.canvas : null;
     drawPreview(plan, image);
     view3d.setPlan(plan, image);
-    view3d.setContext(building ? FPBuilding.below(building) : []);
+    syncContext();
     syncFloors();
     const bb = FPPlan.bounds(plan);
     const total = plan.walls.reduce((sum, w) => sum + FPPlan.wallLength(w), 0);
@@ -488,7 +497,7 @@
       setEdited(wasEdited);
       setPlan(p, null);
       syncPlanWidth();
-      view3d.resetCamera();
+      if (wholeHouse && building && building.floors.length > 1) view3d.viewWhole(); else view3d.resetCamera();
       save();
       note(message);
     };
@@ -896,7 +905,8 @@
     if (!plan) return;
     FPSchemes.sync(plan);
     let url;
-    try { url = FPShare.link(shareBase(), await FPShare.encode(plan)); } catch (e) { note('無法產生分享連結：' + e.message, true); return; }
+    // 有好幾層時整棟一起分享
+    try { url = FPShare.link(shareBase(), await FPShare.encode(building ? FPBuilding.toJSON(building) : plan)); } catch (e) { note('無法產生分享連結：' + e.message, true); return; }
     $('shareUrl').value = url;
     $('shareBox').hidden = false;
     $('shareUrl').select();
@@ -925,11 +935,12 @@
     try { p = await FPShare.decode(data); }
     catch (e) { setViewing(false); if (!plan && !(await restore())) loadSample(); note(e.message, true); return; }
     setViewing(true);
-    building = null;   // 分享的平面圖自成一棟，不要蓋到這台電腦目前專案的樓層
-    pendingFloor = false;
-    openPlan(p, '', true);
-    const rooms = (p.rooms || []).length, schemes = (p.schemes || []).length;
-    note('共 ' + rooms + ' 個空間' + (schemes > 1 ? '、' + schemes + ' 個裝修方案，可以在右上角切換' : '') + '。');
+    // 分享的房子自成一棟，不會蓋到這台電腦目前專案的樓層（看的時候不存檔）
+    if (!openBuilding(p, '', true)) return;
+    const floors = building.floors, cur = floors[building.active].plan;
+    const rooms = (cur.rooms || []).length, schemes = (cur.schemes || []).length;
+    note((floors.length > 1 ? '共 ' + floors.length + ' 層樓，可以在右上角切換或按「看整棟」；這一層' : '共 ') + rooms + ' 個空間' +
+      (schemes > 1 ? '、' + schemes + ' 個裝修方案，可以在右上角切換' : '') + '。');
   }
 
   // 把分享的平面圖存到這台電腦，改成可以編輯
@@ -946,6 +957,12 @@
   // 樓層：切換、新增（上傳圖或框選 PDF 的另一層）、改名、刪除、對齊
   $('floor').addEventListener('change', () => switchFloor(+$('floor').value));
   $('floorQuick').addEventListener('change', () => switchFloor(+$('floorQuick').value));
+  $('wholeHouse').addEventListener('click', () => {
+    wholeHouse = !wholeHouse;
+    syncContext();
+    if (wholeHouse) view3d.viewWhole(); else view3d.resetCamera();
+    note(wholeHouse ? '顯示整棟房子；要看室內請再按一次「看整棟」，只顯示這一層和下面的樓層。' : '');
+  });
   $('floorAdd').addEventListener('click', () => {
     pendingFloor = !pendingFloor && !!building;
     if (pendingFloor) save();   // 先存好目前這一層（含「已修改」）
@@ -977,7 +994,7 @@
     const x = +$('floorDX').value, y = +$('floorDY').value;
     if (!f || !isFinite(x) || !isFinite(y)) return;
     f.offset = [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000];
-    view3d.setContext(FPBuilding.below(building));
+    syncContext();
     save();
   };
   $('floorDX').addEventListener('change', setOffset);
