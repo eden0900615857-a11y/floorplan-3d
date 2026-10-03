@@ -109,9 +109,10 @@
         </div>
         <p class="hint">同一份平面圖可以做好幾種裝修（家具、地板、牆面顏色），切換方案比較看看。牆和門窗是所有方案共用的。</p>
         <div class="ctl">
-          <label for="wallPaint">牆面顏色</label>
+          <label for="wallPaint">全屋牆面顏色</label>
           <select id="wallPaint"></select>
         </div>
+        <p class="hint">個別房間要換牆色：到「2D 校正」點選房間，選「牆色」。</p>
         <p class="hint">家具：到「2D 校正」按「擺家具」，選好種類後點在圖上放下。放好可以拖曳移動、旋轉、修改尺寸，走進房子時會擋路。目前放了 <b id="furnCount" class="num">0</b> 件。</p>
       </div>
 
@@ -152,6 +153,11 @@
         <span class="viewtag" id="viewTag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
         <div class="viewbar">
           <select id="schemeQuick" aria-label="切換裝修方案"></select>
+          <select id="lightMode" aria-label="光線">
+            <option value="day">白天</option>
+            <option value="evening">傍晚</option>
+            <option value="night">夜晚</option>
+          </select>
           <button type="button" id="shot">匯出圖片</button>
           <button type="button" class="walkbtn" id="walk" aria-pressed="false">走進房子</button>
         </div>
@@ -192,6 +198,7 @@
           <span class="thick" id="roomCtl" hidden>
             <label class="thick" for="roomName">房名 <input id="roomName" type="text" maxlength="20"></label>
             <label class="thick" for="roomFloor">地板 <select id="roomFloor"></select></label>
+            <label class="thick" for="roomPaint">牆色 <select id="roomPaint"></select></label>
           </span>
         </div>
         <div class="editcanvas" id="editCanvas"></div>
