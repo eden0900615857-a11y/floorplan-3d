@@ -63,3 +63,32 @@ test('門窗格式錯誤會列出原因', () => {
   assert.match(errors[1], /w99/);
   assert.match(errors[2], /寬度/);
 });
+
+test('openingParts：門有門框三根、門片和門把，門片往開門那一側轉開', () => {
+  const wall = { id: 'w1', a: [0, 0], b: [4, 0], thickness: 0.15, height: 2.8 };
+  const door = { id: 'o1', wall: 'w1', type: 'door', offset: 1, width: 0.9, height: 2.1, hinge: 'a', swing: 'left' };
+  const sp = plan.openingSpans(wall, [door])[0];
+  const parts = plan.openingParts(wall, sp);
+  assert.deepStrictEqual(parts.map(p => p.kind), ['frame', 'frame', 'frame', 'leaf', 'handle']);
+  const leaf = parts[3];
+  assert.ok(leaf.q > 0, '往左側（q 為正）開');
+  assert.ok(leaf.angle > 0 && leaf.angle < Math.PI / 2);
+  assert.ok(leaf.s > sp.s0 && leaf.s < sp.s1, '門軸在 a 端，門片中心在門洞範圍內');
+  // 門軸在 b 端、往右開：門片在右側，從 b 端往回轉
+  const p2 = plan.openingParts(wall, plan.openingSpans(wall, [{ ...door, hinge: 'b', swing: 'right' }])[0]);
+  const leaf2 = p2.find(p => p.kind === 'leaf');
+  assert.ok(leaf2.q < 0);
+  assert.ok(Math.cos(leaf2.angle) < 0, '從 b 端往 a 的方向');
+  assert.ok(Math.abs((leaf.s - sp.s0) - (sp.s1 - leaf2.s)) < 1e-9, '左右對稱');
+});
+
+test('openingParts：窗有四邊窗框、寬窗加中間直框、有窗台板；落地窗沒有窗台', () => {
+  const wall = { id: 'w1', a: [0, 0], b: [4, 0], thickness: 0.15, height: 2.8 };
+  const win = { id: 'o1', wall: 'w1', type: 'window', offset: 1, width: 1.2, height: 1.2, sill: 0.9 };
+  const parts = plan.openingParts(wall, plan.openingSpans(wall, [win])[0]);
+  assert.strictEqual(parts.length, 6);
+  assert.ok(parts.every(p => p.kind === 'frame'));
+  assert.strictEqual(Math.max(...parts.map(p => p.y1)), 2.1);
+  const narrow = plan.openingParts(wall, plan.openingSpans(wall, [{ ...win, width: 0.6, sill: 0 }])[0]);
+  assert.strictEqual(narrow.length, 4);
+});

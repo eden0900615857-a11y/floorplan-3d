@@ -32,8 +32,14 @@
     const cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 28);
     cyl.translate(0, 0.5, 0);
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xeef1f4, roughness: 0.85 });
+    // 門窗零件：門框、窗框（白色）、門片（木色）、門把（金屬）
+    const partMats = {
+      frame: new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.6 }),
+      leaf: new THREE.MeshStandardMaterial({ color: 0xb08358, roughness: 0.7 }),
+      handle: new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.25, metalness: 0.8 })
+    };
     const glassMat = new THREE.MeshStandardMaterial({ color: 0x9cc7e8, roughness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
-    let walls = null, glass = null, floor = null, span = 0;
+    let walls = null, glass = null, frames = [], floor = null, span = 0;
     let roomFloors = null;                 // 每個房間的地板（有材質）
     let ceilings = null;                   // 天花板，只在漫遊時顯示
     let furniture = null;                  // 家具
@@ -110,6 +116,8 @@
     function clear() {
       if (walls) { scene.remove(walls); walls.dispose(); walls = null; }
       if (glass) { scene.remove(glass); glass.dispose(); glass = null; }
+      frames.forEach(f => { scene.remove(f); f.dispose(); });
+      frames = [];
       if (floor) {
         scene.remove(floor);
         floor.geometry.dispose();
@@ -138,13 +146,14 @@
       const cx = (bb.minX + bb.maxX) / 2, cy = (bb.minY + bb.maxY) / 2;
       center = [cx, cy];
       // 每面牆依門窗切成數個方塊；窗戶另外放一片玻璃
-      const boxes = [], panes = [];
+      const boxes = [], panes = [], parts = { frame: [], leaf: [], handle: [] };
       for (const w of plan.walls) {
         const L = FPPlan.wallLength(w);
         if (!L) continue;
         const ops = FPPlan.openingsOf(plan, w.id);
         for (const pc of FPPlan.wallPieces(w, ops)) boxes.push({ w, L, s0: pc.s0, s1: pc.s1, y0: pc.y0, y1: pc.y1, t: w.thickness });
         for (const sp of FPPlan.openingSpans(w, ops)) {
+          for (const pt of FPPlan.openingParts(w, sp)) parts[pt.kind].push({ w, L, ...pt });
           if (sp.o.type !== 'window') continue;
           const y0 = Math.min(sp.o.sill || 0, w.height), y1 = Math.min(w.height, y0 + sp.o.height);
           if (y1 > y0) panes.push({ w, L, s0: sp.s0, s1: sp.s1, y0, y1, t: Math.min(0.02, w.thickness * 0.3) });
@@ -166,6 +175,30 @@
         });
         mesh.instanceMatrix.needsUpdate = true;
         return mesh;
+      }
+      // 門窗零件：中心點在 (s, q)，長邊從牆的方向再轉 angle
+      function instancedParts(list, mat) {
+        const mesh = new THREE.InstancedMesh(box, mat, Math.max(1, list.length));
+        mesh.count = list.length;
+        list.forEach((b, i) => {
+          const ux = (b.w.b[0] - b.w.a[0]) / b.L, uy = (b.w.b[1] - b.w.a[1]) / b.L;
+          // 左側法向量（a→b 的左邊，y 向下的座標）是 (uy, −ux)
+          p.set(b.w.a[0] + ux * b.s + uy * b.q - cx, b.y0, b.w.a[1] + uy * b.s - ux * b.q - cy);
+          q.setFromAxisAngle(up, -Math.atan2(uy, ux) + b.angle);
+          sc.set(b.len, b.y1 - b.y0, b.t);
+          m.compose(p, q, sc);
+          mesh.setMatrixAt(i, m);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        return mesh;
+      }
+      for (const k in parts) {
+        if (!parts[k].length) continue;
+        const mesh = instancedParts(parts[k], partMats[k]);
+        frames.push(mesh);
+        scene.add(mesh);
       }
       walls = instanced(boxes, wallMat);
       walls.castShadow = true;
