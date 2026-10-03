@@ -37,6 +37,8 @@
         <span class="label">牆線辨識</span>
         <p class="hint" id="pdfNote" hidden>PDF 施工圖直接讀取圖上的線條：兩條平行細線當作牆、開門弧當作門、牆裡的細線當作窗，不需要調整門檻。辨識不到或多出來的牆，請到「2D 校正」修改。</p>
         <div class="rasterctl" id="rasterCtl">
+        <label class="check"><input id="aiMode" type="checkbox">AI 辨識（機器學習模型）</label>
+        <p class="hint">用預先訓練好的模型找牆、門窗，還會依房間種類取名字。有家具、磁磚、地板花紋的彩色格局圖通常比較準。第一次使用要下載約 30 MB 的模型，之後會存在瀏覽器裡；辨識在你的電腦上進行，圖片不會上傳。模型僅限非商業使用。</p>
         <div class="ctl">
           <label for="thr">黑白門檻</label><output id="thrOut"></output>
           <input id="thr" type="range" min="20" max="240" step="1" value="128">
@@ -224,6 +226,7 @@
 <script src="js/pdfpick.js"></script>
 <script src="js/vectorize.js"></script>
 <script src="js/openings.js"></script>
+<script src="js/ml.js"></script>
 <script src="js/plan.js"></script>
 <script src="js/share.js"></script>
 <script src="js/materials.js"></script>
