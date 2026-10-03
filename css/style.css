@@ -69,6 +69,9 @@ button:focus-visible,.filebtn:focus-within,input:focus-visible{outline:2px solid
 .rasterctl{display:flex;flex-direction:column;gap:8px}
 .thick select{font:13px var(--sans);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
 #pickCanvas canvas{cursor:crosshair}
+.facades{display:flex;flex-wrap:wrap;gap:6px}
+.facades span{display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);font-size:12px}
+.facades button{padding:0 6px;font-size:12px}
 .tabs{display:flex;gap:6px}
 .tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
 button:disabled{opacity:.45;cursor:default}
