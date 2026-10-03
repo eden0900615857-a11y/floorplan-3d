@@ -27,9 +27,10 @@ test('家具庫：每件都有名稱、分類、尺寸，方塊比例在 0–1 �
     assert.ok(it.name && F.CATS.includes(it.cat), it.id);
     assert.ok(it.w > 0 && it.d > 0 && it.h > 0, it.id);
     for (const p of it.parts) {
-      assert.equal(p.length, 7, it.id);
+      assert.ok(p.length === 7 || (p.length === 8 && p[7] === 'cyl'), it.id);
       assert.ok(p[0] < p[1] && p[2] < p[3] && p[4] < p[5], it.id + ' 方塊範圍');
-      assert.ok(p.slice(0, 6).every(v => v >= -0.01 && v <= 1.06), it.id);
+      assert.ok(p.slice(0, 4).every(v => v >= -0.01 && v <= 1.06), it.id + ' 寬深在家具範圍內');
+      assert.ok(p[4] >= 0 && p[5] <= 2.5, it.id + ' 高度');
       assert.ok(F.COLORS[p[6]], it.id + ' 顏色 ' + p[6]);
     }
   }
@@ -70,11 +71,19 @@ test('3D 方塊：位置跟著旋轉，高度照比例', () => {
   const f = { id: 'f1', model: 'wardrobe', pos: [1, 1], rotation: 90, w: 1.2, d: 0.6 };
   const [body] = F.parts(f);
   assert.ok(near(body.x, 1) && near(body.y, 1) && near(body.w, 1.2) && near(body.d, 0.6));
-  assert.ok(near(body.z0, 0) && near(body.z1, 2.1));
+  assert.ok(near(body.z1, 2.1) && body.z0 < 0.1);
   // 衣櫃門把在正面（0 度時 +y；轉 90 度後朝 -x）
   const handle = F.parts(f)[2];
   assert.ok(handle.x < 1 - 0.29, 'handle x ' + handle.x);
   assert.deepEqual(F.parts({ model: 'nope', pos: [0, 0], w: 1, d: 1 }), []);
+});
+
+test('3D 造型：橢圓柱與玻璃', () => {
+  const t = F.parts({ id: 'f1', model: 'toilet', pos: [0, 0], rotation: 0, w: 0.4, d: 0.7 });
+  assert.ok(t.some(p => p.shape === 'cyl'), '馬桶座是橢圓柱');
+  assert.ok(t.every(p => p.shape === 'cyl' || p.shape === 'box'));
+  const s = F.parts({ id: 'f2', model: 'shower', pos: [0, 0], rotation: 0, w: 0.9, d: 0.9 });
+  assert.equal(s.filter(p => p.glass).length, 2, '淋浴間兩片玻璃');
 });
 
 test('移動、改尺寸、刪除、比例尺縮放只動位置；復原會還原家具與牆面顏色', () => {
@@ -163,7 +172,7 @@ test('家具換色：存成 #rrggbb、可以還原；方塊家具換主色，模
   assert.equal(E.setFurnitureColor(plan, 'f1', '#6F8DA6').color, '#6f8da6');
   const parts = F.parts(f);
   assert.equal(parts[0].color, '#6f8da6', '櫃體換色');
-  assert.equal(parts[1].color, F.COLORS.steel, '檯面不變');
+  assert.equal(parts[1].color, F.COLORS.stone, '檯面不變');
   assert.deepEqual(P.validate(plan), []);
   E.setFurnitureColor(plan, 'f1', 'red');
   assert.equal(f.color, undefined, '格式不對就用原本的顏色');
