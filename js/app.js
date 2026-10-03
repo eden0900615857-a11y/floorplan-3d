@@ -133,22 +133,38 @@
     });
     $('thr').value = mask.threshold;
     $('thrOut').textContent = mask.threshold;
-    const planW = Math.max(1, +$('planW').value || 12);
-    const ppm = src.w / planW;
-    // 牆：AI 辨識用模型找到的牆像素，否則用黑白門檻找到的粗線
-    const vec = ml ? FPML.walls(ml, src.w, src.h, ppm) : FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
-    const walls = ml ? vec.mask : mask.walls;
-    // 圖片裁到外牆時，沿著圖片邊緣補牆（AI 辨識在 FPML.walls 裡已經補過）
-    const closed = ml ? vec : FPVectorize.closeBorder(vec.segments, src.w, src.h);
-    // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
-    const ink = new Uint8Array(mask.raw.length);
-    for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - (mask.walls[i] | walls[i]));
-    // AI 辨識時，規則找不到開門弧或窗線的缺口，再問模型是不是門窗
-    const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, {
-      minGap: 0.5 * ppm, maxGap: 2.5 * ppm, hint: ml ? FPML.openingHint(ml, src.w, src.h) : null
-    });
-    // 外牆沒畫完整（圖片裁掉、陽台只有細欄杆線）的地方，把牆沿著外緣延伸接起來，讓房間封閉
-    FPVectorize.closeOuter(ops.segments, src.w, src.h, { tol: 0.25 * ppm, reach: 0.5 * ppm, maxLen: 6 * ppm });
+    // 牆、門窗、外牆：每公尺 ppm 像素（門窗缺口的寬度範圍、接牆距離都依比例換算）
+    const build = ppm => {
+      // 牆：AI 辨識用模型找到的牆像素，否則用黑白門檻找到的粗線
+      const vec = ml ? FPML.walls(ml, src.w, src.h, ppm) : FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
+      const walls = ml ? vec.mask : mask.walls;
+      // 圖片裁到外牆時，沿著圖片邊緣補牆（AI 辨識在 FPML.walls 裡已經補過）
+      const closed = ml ? vec : FPVectorize.closeBorder(vec.segments, src.w, src.h);
+      // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
+      const ink = new Uint8Array(mask.raw.length);
+      for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - (mask.walls[i] | walls[i]));
+      // AI 辨識時，規則找不到開門弧或窗線的缺口，再問模型是不是門窗
+      const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, {
+        minGap: 0.5 * ppm, maxGap: 2.5 * ppm, hint: ml ? FPML.openingHint(ml, src.w, src.h) : null
+      });
+      // 外牆沒畫完整（圖片裁掉、陽台只有細欄杆線）的地方，把牆沿著外緣延伸接起來，讓房間封閉
+      FPVectorize.closeOuter(ops.segments, src.w, src.h, { tol: 0.25 * ppm, reach: 0.5 * ppm, maxLen: 6 * ppm });
+      return { vec, ops };
+    };
+    let ppm = src.w / Math.max(1, +$('planW').value || 12);
+    let { vec, ops } = build(ppm);
+    // 新上傳的圖片：用門寬推算比例（AI 辨識要等模型跑完，用模型的結果推算）
+    if (src.autoScale && (!ai || ml)) {
+      src.autoScale = false;
+      const est = FPOpenings.scaleFromDoors(ops.openings);
+      if (est) {
+        if (Math.abs(est / ppm - 1) > 0.03) { ppm = est; ({ vec, ops } = build(ppm)); }
+        $('planW').value = +(src.w / ppm).toFixed(1);
+        src.scaleMsg = '已依門寬（約 ' + FPOpenings.DOOR_WIDTH * 100 + ' 公分）推算比例，圖面寬約 ' + (src.w / ppm).toFixed(1) +
+          ' 公尺。有已知尺寸的話，請到「2D 校正」用比例尺確認。';
+        if (!ai) note(src.scaleMsg);
+      }
+    }
     const p = FPPlan.fromSegments(ops.segments, {
       widthPx: src.w, heightPx: src.h,
       pxPerMeter: ppm,
@@ -178,7 +194,8 @@
         }
         detect();
         const doors = plan.openings.filter(o => o.type === 'door').length;
-        note('AI 辨識出 ' + plan.walls.length + ' 段牆、' + doors + ' 扇門、' + (plan.openings.length - doors) + ' 扇窗、' + plan.rooms.length + ' 個房間。到「2D 校正」可以修正。');
+        note('AI 辨識出 ' + plan.walls.length + ' 段牆、' + doors + ' 扇門、' + (plan.openings.length - doors) + ' 扇窗、' + plan.rooms.length + ' 個房間。' +
+          (s.scaleMsg || '到「2D 校正」可以修正。'));
       })
       .catch(err => { if (src === s) note('AI 辨識失敗：' + (err && err.message ? err.message : err) + ' 目前顯示的是一般辨識的結果。', true); })
       .then(() => { s.mlPending = false; });
@@ -381,7 +398,7 @@
     };
     if (p.source && p.source.image) {
       const img = new Image();
-      img.onload = () => { loadSource(img); autoColorMode(); src.fromPdf = p.source.from === 'pdf'; syncSourceKind(); finish(); };
+      img.onload = () => { loadSource(img); src.autoScale = true; autoColorMode(); src.fromPdf = p.source.from === 'pdf'; syncSourceKind(); finish(); };
       img.onerror = () => { src = null; finish(); };
       img.src = p.source.image;
     } else {
@@ -424,7 +441,7 @@
 
   function openImageFile(file) {
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { loadSource(img); autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); note(''); detect(); view3d.resetCamera(); };
+    img.onload = () => { loadSource(img); src.autoScale = true; autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); note(''); detect(); view3d.resetCamera(); };
     img.onerror = () => { URL.revokeObjectURL(url); note('無法讀取這張圖片，請改用 JPG 或 PNG。', true); };
     img.src = url;
   }
@@ -532,6 +549,7 @@
   // 圖面寬度：等比例縮放目前的平面圖（可以復原），不重新辨識
   $('planW').addEventListener('change', () => {
     const w = +$('planW').value;
+    if (src) src.autoScale = false;   // 使用者自己填了寬度，不再自動推算
     if (!plan || !(w > 0)) return;
     editor.rescale(w / planWidth(plan));
   });

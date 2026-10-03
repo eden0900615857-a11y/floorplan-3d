@@ -97,3 +97,11 @@ test('只有半段弧（例如碰到椅子的圓弧）要看到門片才算門',
   assert.equal(r.openings.length, 1);
   assert.equal(r.openings[0].type, 'door');
 });
+
+test('scaleFromDoors：門洞寬度的中位數當作 0.9 公尺', () => {
+  const { scaleFromDoors } = require('../js/openings.js');
+  const door = (g0, g1) => ({ type: 'door', g0, g1 });
+  assert.strictEqual(scaleFromDoors([door(0, 45), door(10, 55), { type: 'window', g0: 0, g1: 200 }, door(0, 90)]), 50);
+  assert.strictEqual(scaleFromDoors([door(0, 40), door(0, 50)]), 50);
+  assert.strictEqual(scaleFromDoors([door(0, 45), { type: 'window', g0: 0, g1: 60 }]), null, '門少於 2 扇無法推算');
+});

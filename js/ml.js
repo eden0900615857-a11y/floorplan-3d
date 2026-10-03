@@ -111,8 +111,8 @@
   //    這樣牆角、管道間那種兩個方向都很厚的色塊不會把相鄰的牆撐成一面厚牆；
   // 3. 各自找成帶狀的直線段，最小牆厚 3 像素（細的隔間牆也留下來）；
   // 4. 同一條線上相隔不到 MERGE_GAP 公尺的牆接起來（比最窄的門 0.5 公尺還短，不會吃掉門洞）；
-  // 5. 柱子（BLOCK_MAX 公尺以內的厚色塊）另外補上，圖片邊緣補外牆，牆角接起來。
-  const MIN_T = 3, MAX_T = 0.4, MERGE_GAP = 0.4, BLOCK_MAX = 1.6;
+  // 5. 柱子、管道間（BLOCK_MAX 公尺以內的厚色塊）另外補上，圖片邊緣補外牆，牆角接起來。
+  const MIN_T = 3, MAX_T = 0.4, MERGE_GAP = 0.4, BLOCK_MAX = 2.5;
   function walls(ml, W, H, ppm) {
     let mask = wallMask(ml, W, H);
     mask = FPDetect.morph(FPDetect.morph(mask, W, H, 1, false), W, H, 1, true);
