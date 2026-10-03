@@ -5,6 +5,7 @@
   const MAX_SIDE = 900;                          // 辨識用的工作解析度（長邊像素）
   const STORAGE_KEY = 'floorplan-3d:last-plan';
   const EDITED_KEY = 'floorplan-3d:edited';
+  const AI_KEY = 'floorplan-3d:ai';               // 使用者有沒有打開 AI 辨識
 
   let src = null;      // 目前的原圖：{w, h, gray, canvas, dataURL}；PDF 另有 vector: {lines, ppm}，fromPdf 表示原圖來自 PDF
   let pdf = null;      // 目前開啟的 PDF：{doc, page}
@@ -119,6 +120,10 @@
     if (src.vector) return detectVector();
     if (src.fromPdf) { note('這份平面圖來自 PDF，要重新辨識請重新上傳 PDF。', true); return; }
     const t0 = performance.now();
+    // AI 辨識：模型還沒跑完時先顯示規則辨識的結果，跑完會再辨識一次
+    const ai = $('aiMode').checked && FPML.available();
+    if (ai && !src.ml) runAI(src);
+    const ml = ai ? src.ml : null;
     const minThickness = +$('minT').value;
     const color = $('colorMode').checked;
     const mask = FPDetect.wallMask(color ? src.cgray : src.gray, src.w, src.h, {
@@ -128,24 +133,53 @@
     });
     $('thr').value = mask.threshold;
     $('thrOut').textContent = mask.threshold;
-    const vec = FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
-    // 圖片裁到外牆時，沿著圖片邊緣補牆
-    const closed = FPVectorize.closeBorder(vec.segments, src.w, src.h);
     const planW = Math.max(1, +$('planW').value || 12);
     const ppm = src.w / planW;
+    // 牆：AI 辨識用模型找到的牆像素，否則用黑白門檻找到的粗線
+    const vec = ml ? FPML.walls(ml, src.w, src.h, ppm) : FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
+    const walls = ml ? vec.mask : mask.walls;
+    // 圖片裁到外牆時，沿著圖片邊緣補牆（AI 辨識在 FPML.walls 裡已經補過）
+    const closed = ml ? vec : FPVectorize.closeBorder(vec.segments, src.w, src.h);
     // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
     const ink = new Uint8Array(mask.raw.length);
-    for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - mask.walls[i]);
-    const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, { minGap: 0.5 * ppm, maxGap: 2.5 * ppm });
+    for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - (mask.walls[i] | walls[i]));
+    // AI 辨識時，規則找不到開門弧或窗線的缺口，再問模型是不是門窗
+    const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, {
+      minGap: 0.5 * ppm, maxGap: 2.5 * ppm, hint: ml ? FPML.openingHint(ml, src.w, src.h) : null
+    });
     const p = FPPlan.fromSegments(ops.segments, {
       widthPx: src.w, heightPx: src.h,
       pxPerMeter: ppm,
       wallHeight: +$('wallH').value,
       image: src.dataURL
     }, ops.openings);
+    // AI 辨識也看得出房間種類，幫房間取名字（臥室、浴室…）
+    if (ml) p.rooms = FPML.nameRooms(FPRooms.assign(FPRooms.detect(p), []), ml, ppm, src.w);
     setEdited(false);
     setPlan(p, { coverage: vec.coverage, ms: performance.now() - t0 });
     save();
+  }
+
+  // 在背景跑 AI 模型；跑完時圖片沒換、牆也沒手動改過，就用模型的結果重新辨識
+  function runAI(s) {
+    if (s.mlPending) return;
+    s.mlPending = true;
+    note('AI 辨識中…');
+    FPML.run(s.canvas, f => { if (src === s) note('正在下載 AI 模型（第一次使用才需要）… ' + Math.round(f * 100) + '%'); })
+      .then(ml => {
+        s.ml = ml;
+        if (src !== s || !$('aiMode').checked) return;
+        if (edited) {
+          $('redetectBox').hidden = false;
+          note('AI 辨識完成。你已經改過牆，要套用請按「重新辨識」。');
+          return;
+        }
+        detect();
+        const doors = plan.openings.filter(o => o.type === 'door').length;
+        note('AI 辨識出 ' + plan.walls.length + ' 段牆、' + doors + ' 扇門、' + (plan.openings.length - doors) + ' 扇窗、' + plan.rooms.length + ' 個房間。到「2D 校正」可以修正。');
+      })
+      .catch(err => { if (src === s) note('AI 辨識失敗：' + (err && err.message ? err.message : err) + ' 目前顯示的是一般辨識的結果。', true); })
+      .then(() => { s.mlPending = false; });
   }
 
   // PDF：兩條平行細線是牆、開門弧是門、牆裡的細線是窗
@@ -388,7 +422,7 @@
 
   function openImageFile(file) {
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { loadSource(img); autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); detect(); view3d.resetCamera(); note(''); };
+    img.onload = () => { loadSource(img); autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); note(''); detect(); view3d.resetCamera(); };
     img.onerror = () => { URL.revokeObjectURL(url); note('無法讀取這張圖片，請改用 JPG 或 PNG。', true); };
     img.src = url;
   }
@@ -464,9 +498,9 @@
     loadSource(color === true ? FPSample.drawColor() : FPSample.draw());
     autoColorMode();
     syncSourceKind();
+    note('');
     detect();
     view3d.resetCamera();
-    note('');
   }
 
   function syncOutputs() {
@@ -478,7 +512,14 @@
 
   // 辨識設定：還沒手動修改就直接重新辨識；改過的話先詢問
   let timer = 0;
-  ['thr', 'minT', 'autoThr', 'invert', 'colorMode'].forEach(id => $(id).addEventListener('input', () => {
+  // AI 辨識：記住使用者的選擇；直接用檔案打開網頁時不能下載模型
+  try { $('aiMode').checked = localStorage.getItem(AI_KEY) === '1'; } catch (e) { /* 不允許時略過 */ }
+  $('aiMode').addEventListener('input', () => {
+    try { localStorage.setItem(AI_KEY, $('aiMode').checked ? '1' : ''); } catch (e) { /* 不允許時略過 */ }
+    if ($('aiMode').checked && !FPML.available()) note('AI 辨識要從網站開啟（' + SITE_URL + '），直接打開檔案時無法下載模型。', true);
+    else if (!$('aiMode').checked) note('');
+  });
+  ['thr', 'minT', 'autoThr', 'invert', 'colorMode', 'aiMode'].forEach(id => $(id).addEventListener('input', () => {
     syncOutputs();
     if (edited) { $('redetectBox').hidden = false; return; }
     clearTimeout(timer);

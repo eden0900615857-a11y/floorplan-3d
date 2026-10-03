@@ -1,0 +1,20 @@
+model/cubicasa-int8.onnx
+
+This file is a converted (ONNX) and 8-bit quantized copy of the pretrained
+floor plan model published with CubiCasa5K:
+
+  Ahmed Kalervo, Juha Ylioinas, Markus Häikiö, Antti Karhu, Juho Kannala.
+  "CubiCasa5K: A Dataset and an Improved Multi-Task Model for Floorplan Image Analysis."
+  Scandinavian Conference on Image Analysis (SCIA), 2019.
+  https://github.com/CubiCasa/CubiCasa5k
+
+The CubiCasa5K dataset and model are released by CubiCasa under the
+Creative Commons Attribution-NonCommercial 4.0 International license
+(CC BY-NC 4.0): https://creativecommons.org/licenses/by-nc/4.0/
+
+Changes: the weights (model_best_val_loss_var.pkl) were exported to ONNX
+(opset 17) and the weights were dynamically quantized to 8 bits with
+ONNX Runtime (tools/ml/export.py). No retraining.
+
+Non-commercial use only. Any commercial use of this project requires
+replacing this model with one that is licensed for commercial use.

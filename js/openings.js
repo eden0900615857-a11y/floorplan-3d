@@ -89,16 +89,17 @@
     return best;
   }
 
-  function classify(ink, seg, g0, g1) {
+  // hint：AI 辨識時由模型判斷缺口是不是門窗（規則找不到符號時才問），沒有就是 null
+  function classify(ink, seg, g0, g1, hint) {
     const t = seg.t;
     // 先找開門弧：門口常畫一條門檻線，會被誤認成窗線；窗外不會剛好有四分之一圓
     const arc = findDoorArc(ink.near, seg.dir, seg.c, t, g0, g1);
     if (arc) return { type: 'door', hinge: arc.hinge, side: arc.side };
     if (hasWindowLines(ink.at, seg.dir, seg.c, t, g0, g1)) return { type: 'window' };
-    return null;
+    return hint ? hint(seg.dir, seg.c, t, g0, g1) : null;
   }
 
-  // segs：vectorize 的線段；ink：細線遮罩；opts：{minGap, maxGap}（像素）
+  // segs：vectorize 的線段；ink：細線遮罩；opts：{minGap, maxGap}（像素），可選 opts.hint（見 classify）
   // 回傳 {segments, openings}；openings 的 seg 指向 segments 裡的線段，g0–g1 是缺口範圍
   function detect(segs, inkMask, w, h, opts) {
     const ink = makeInk(inkMask, w, h);
@@ -122,7 +123,7 @@
             if (!next || s.p0 < next.p0) next = s;
           }
           if (!next || !inRange(next.p0 - cur.p1)) break;
-          const kind = classify(ink, { dir, c: (cur.c + next.c) / 2, t: Math.max(cur.t, next.t) }, cur.p1, next.p0);
+          const kind = classify(ink, { dir, c: (cur.c + next.c) / 2, t: Math.max(cur.t, next.t) }, cur.p1, next.p0, opts.hint);
           if (!kind) break;
           openings.push({ seg: cur, g0: cur.p1, g1: next.p0, ...kind });
           const l1 = cur.p1 - cur.p0, l2 = next.p1 - next.p0;
@@ -149,7 +150,10 @@
         }
         if (!best) continue;
         const g0 = end === 'p1' ? s.p1 : best.face, g1 = end === 'p1' ? best.face : s.p0;
-        const kind = classify(ink, s, g0, g1);
+        // 平行、緊貼的另一段牆上已經在這個位置找到門窗，不要重複
+        if (openings.some(o => o.seg.dir === s.dir && Math.abs(o.seg.c - s.c) <= Math.max(o.seg.t, s.t) &&
+          Math.min(o.g1, g1) > Math.max(o.g0, g0))) continue;
+        const kind = classify(ink, s, g0, g1, opts.hint);
         if (!kind) continue;
         openings.push({ seg: s, g0, g1, ...kind });
         // 牆延伸到垂直牆的中心線，兩面牆接在一起
