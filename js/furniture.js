@@ -75,6 +75,13 @@
       [0.2, 0.8, 0.2, 0.8, 0, 0.3, 'darkwood'], [0, 1, 0, 1, 0.3, 1, 'green']] }
   ];
   const CATS = ['客廳', '臥室', '餐廚', '衛浴', '其他'];
+  // 家具換色：換掉家具的主色（模型面積最大的色塊；方塊家具是第一個方塊的顏色），id 就是存檔的 color
+  const TINTS = [
+    { id: '#f2f0eb', name: '白' }, { id: '#e6dcc8', name: '米白' }, { id: '#b9bcbe', name: '淺灰' },
+    { id: '#6b6f73', name: '深灰' }, { id: '#2e3033', name: '黑' }, { id: '#c9a27a', name: '原木' },
+    { id: '#8a5a3b', name: '胡桃木' }, { id: '#6f8da6', name: '灰藍' }, { id: '#2f4f45', name: '墨綠' },
+    { id: '#d9a441', name: '芥末黃' }, { id: '#a8553f', name: '磚紅' }, { id: '#c99a9a', name: '乾燥玫瑰' }
+  ];
 
   function item(model) {
     return CATALOG.find(c => c.id === model) || null;
@@ -102,9 +109,18 @@
     return Math.abs(s) <= f.w / 2 + pad && Math.abs(t) <= f.d / 2 + pad;
   }
 
-  // 點到的家具：後擺的在上面，優先選到
-  function hit(plan, p, pad) {
+  // 貼地的家具（地毯）永遠在最下層
+  const flat = f => { const def = item(f.model); return !!def && (f.h || def.h) < 0.1; };
+
+  // 由下到上的順序：地毯先，其他照擺放順序
+  function layered(plan) {
     const list = plan.furniture || [];
+    return list.filter(flat).concat(list.filter(f => !flat(f)));
+  }
+
+  // 點到的家具：最上層的優先（後擺的在上面，地毯在最下面）
+  function hit(plan, p, pad) {
+    const list = layered(plan);
     for (let i = list.length - 1; i >= 0; i--) if (contains(list[i], p, pad)) return list[i];
     return null;
   }
@@ -114,12 +130,13 @@
     const def = item(f.model);
     if (!def) return [];
     const h = f.h || def.h, { ux, fy } = axes(f);
+    const mainKey = def.parts[0][6];
     return def.parts.map(([x0, x1, y0, y1, z0, z1, c]) => {
       const sx = ((x0 + x1) / 2 - 0.5) * f.w, sy = ((y0 + y1) / 2 - 0.5) * f.d;
       return {
         x: f.pos[0] + ux[0] * sx + fy[0] * sy, y: f.pos[1] + ux[1] * sx + fy[1] * sy,
         w: (x1 - x0) * f.w, d: (y1 - y0) * f.d, z0: z0 * h, z1: z1 * h,
-        rotation: f.rotation || 0, color: C[c] || c
+        rotation: f.rotation || 0, color: f.color && c === mainKey ? f.color : C[c] || c
       };
     });
   }
@@ -132,5 +149,5 @@
     return { ax: f.pos[0] - ux[0] * f.w / 2, ay: f.pos[1] - ux[1] * f.w / 2, ux: ux[0], uy: ux[1], s0: 0, s1: f.w, h: f.d / 2 };
   }
 
-  return { CATALOG, CATS, COLORS: C, item, footprint, contains, hit, parts, solid };
+  return { CATALOG, CATS, TINTS, COLORS: C, item, footprint, contains, layered, hit, parts, solid };
 });

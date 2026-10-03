@@ -38,6 +38,8 @@
     const colorMats = new Map();           // 家具顏色 → 材質，重複使用
     const modelGeoms = new Map();          // 家具模型名稱 → BufferGeometry，重複使用
     let modelMat = null;                   // 家具模型共用的貼圖材質
+    let tintMat = null;                    // 換過顏色的家具模型：貼圖乘上頂點顏色
+    const tintGeoms = new Map();           // 「模型|顏色」→ 換色後的 BufferGeometry
 
     // 家具模型（KayKit，CC0）：幾何已正規化成 1 × 1 × 1，擺放時依家具尺寸縮放
     function modelGeometry(name) {
@@ -50,6 +52,26 @@
       g.setIndex(new THREE.BufferAttribute(d.index, 1));
       modelGeoms.set(name, g);
       return g;
+    }
+
+    // 換色：主色的頂點改用貼圖上的淺色漸層，再乘上頂點顏色；其他部分頂點顏色是白色（不變）
+    function tintedGeometry(name, hex) {
+      const key = name + '|' + hex;
+      if (tintGeoms.has(key)) return tintGeoms.get(key);
+      const base = modelGeometry(name);
+      if (!base) return null;
+      const g = base.clone(), mask = FPModels.mainMask(name).mask, c = new THREE.Color(hex);
+      g.setAttribute('uv', new THREE.BufferAttribute(FPModels.tintUV(name), 2));
+      const col = new Float32Array(mask.length * 3).fill(1);
+      for (let i = 0; i < mask.length; i++) if (mask[i]) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      tintGeoms.set(key, g);
+      return g;
+    }
+
+    function tintMaterial() {
+      if (!tintMat) { tintMat = modelMaterial().clone(); tintMat.vertexColors = true; }
+      return tintMat;
     }
 
     function modelMaterial() {
@@ -190,7 +212,8 @@
       for (const f of plan.furniture || []) {
         const def = FPFurniture.item(f.model), geo = def && modelGeometry(def.mesh);
         if (geo) {
-          const mesh = new THREE.Mesh(geo, modelMaterial());
+          const tinted = f.color && tintedGeometry(def.mesh, f.color);
+          const mesh = tinted ? new THREE.Mesh(tinted, tintMaterial()) : new THREE.Mesh(geo, modelMaterial());
           mesh.position.set(f.pos[0] - cx, 0, f.pos[1] - cy);
           mesh.rotation.y = -(f.rotation || 0) * Math.PI / 180;
           mesh.scale.set(f.w, f.h || def.h, f.d);

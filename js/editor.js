@@ -120,6 +120,7 @@
       ctx.closePath();
       ctx.fillStyle = css('--panel');
       ctx.fill();
+      if (f.color) { ctx.globalAlpha = alpha * 0.45; ctx.fillStyle = f.color; ctx.fill(); ctx.globalAlpha = alpha; }
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.stroke();
@@ -192,7 +193,7 @@
         ctx.globalAlpha = 1;
         for (const sp of spans) drawOpening(w, sp, sp.o.id === selOpening ? sel : ink);
       }
-      for (const f of plan.furniture || []) drawFurniture(f, f.id === selFurn ? sel : ink, 1);
+      for (const f of FPFurniture.layered(plan)) drawFurniture(f, f.id === selFurn ? sel : ink, 1);
       if (tool === 'furniture' && hover && !drag) {
         const def = FPFurniture.item(placeModel);
         if (def) drawFurniture({ model: placeModel, pos: hover, rotation: 0, w: def.w, d: def.d }, sel, 0.6);
@@ -589,6 +590,14 @@
       commit();
     }
 
+    function setFurnitureColor(color) {
+      const f = selFurn && FPEdit.findFurniture(plan, selFurn);
+      if (!f || (f.color || '') === (color || '')) return;
+      history.record(plan);
+      FPEdit.setFurnitureColor(plan, f.id, color);
+      commit();
+    }
+
     // 裝修方案的新增、切換、改名、刪除（fn 直接修改平面圖，回傳 false 表示沒有改變）
     function schemeOp(fn) {
       if (!plan) return;
@@ -639,7 +648,7 @@
     }
 
     return {
-      setPlan, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setWallPaint, schemeOp,
+      setPlan, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setFurnitureColor, setWallPaint, schemeOp,
       setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, setRoomFloor, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,

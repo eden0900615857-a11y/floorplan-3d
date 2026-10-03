@@ -41,5 +41,56 @@
     return g;
   }
 
-  return { has, decode, names: data ? Object.keys(data.models) : [], texture: data ? data.texture : null, source: data ? data.source : '' };
+  // 貼圖是 8 × 4 格的色塊（1024 × 1024），相鄰同色的格子算同一個色塊
+  const SWATCHES = [
+    ['wood-dark', 'wood-dark', 'wood-dark', 'wood', 'wood', 'wood-light', 'metal', 'white'],
+    ['yellow', 'yellow', 'blue', 'blue', 'sheet', 'sheet', 'sheet', 'orange'],
+    ['grey', 'beige', 'black', 'white2', 'wood-light2', 'wood2', 'teal', 'green'],
+    ['grey', 'grad1', 'grad2', 'grad2', 'grad3', 'grad3', 'grad4', 'grad4']
+  ];
+  function swatch(u, v) {
+    const c = Math.min(7, Math.max(0, Math.floor(u * 8))), r = Math.min(3, Math.max(0, Math.floor(v * 4)));
+    return SWATCHES[r][c];
+  }
+
+  // 換色用：模型面積最大的色塊（沙發的布、床的被子、桌子的木頭）是「主色」，
+  // 回傳每個頂點是否屬於主色，以及主色名稱
+  const masks = new Map();
+  function mainMask(name) {
+    const g = decode(name);
+    if (!g) return null;
+    if (masks.has(name)) return masks.get(name);
+    const P = g.position, U = g.uv, I = g.index, area = new Map(), n = U.length / 2;
+    const sw = new Array(n);
+    for (let i = 0; i < n; i++) sw[i] = swatch(U[i * 2], U[i * 2 + 1]);
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+      const ab = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], ac = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+      const ar = Math.hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) / 2;
+      const k = sw[I[t]];
+      area.set(k, (area.get(k) || 0) + ar);
+    }
+    const main = [...area].sort((x, y) => y[1] - x[1])[0][0];
+    const mask = Uint8Array.from(sw, k => (k === main ? 1 : 0));
+    const out = { main, mask };
+    masks.set(name, out);
+    return out;
+  }
+
+  // 換成指定顏色的 UV：主色的頂點改用貼圖上白到淺灰的漸層色塊（保留明暗），再乘上顏色
+  const NEUTRAL_U = 0.69;
+  function tintUV(name) {
+    const g = decode(name), m = mainMask(name);
+    if (!g) return null;
+    const uv = Float32Array.from(g.uv);
+    for (let i = 0; i < m.mask.length; i++) {
+      if (!m.mask[i]) continue;
+      const v = uv[i * 2 + 1] * 4;
+      uv[i * 2] = NEUTRAL_U;
+      uv[i * 2 + 1] = 0.25 + Math.min(0.999, v - Math.floor(v)) * 0.25;
+    }
+    return uv;
+  }
+
+  return { has, decode, swatch, mainMask, tintUV, names: data ? Object.keys(data.models) : [], texture: data ? data.texture : null, source: data ? data.source : '' };
 });

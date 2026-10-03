@@ -156,3 +156,37 @@ test('地毯不擋路、落地燈會擋', () => {
   E.addFurniture(plan, 'lamp-floor', [1, 1], 0);
   assert.equal(W.solids(plan).length, 5);
 });
+
+test('家具換色：存成 #rrggbb、可以還原；方塊家具換主色，模型找出主色區域', () => {
+  const plan = room();
+  const f = E.addFurniture(plan, 'kitchen', [2, 1.5], 0);
+  assert.equal(E.setFurnitureColor(plan, 'f1', '#6F8DA6').color, '#6f8da6');
+  const parts = F.parts(f);
+  assert.equal(parts[0].color, '#6f8da6', '櫃體換色');
+  assert.equal(parts[1].color, F.COLORS.steel, '檯面不變');
+  assert.deepEqual(P.validate(plan), []);
+  E.setFurnitureColor(plan, 'f1', 'red');
+  assert.equal(f.color, undefined, '格式不對就用原本的顏色');
+  f.color = 'blue';
+  assert.equal(P.validate(plan).length, 1);
+  assert.ok(F.TINTS.every(t => /^#[0-9a-f]{6}$/.test(t.id) && t.name));
+
+  const Mo = require('../js/models.js');
+  assert.equal(Mo.mainMask('couch_pillows').main, 'yellow');
+  assert.equal(Mo.mainMask('bed_double_A').main, 'blue', '床換的是被子');
+  assert.equal(Mo.mainMask('table_low').main, 'wood-dark');
+  const m = Mo.mainMask('bed_double_A'), uv = Mo.tintUV('bed_double_A'), g = Mo.decode('bed_double_A');
+  for (let i = 0; i < m.mask.length; i++) {
+    if (m.mask[i]) assert.equal(Mo.swatch(uv[i * 2], uv[i * 2 + 1]), 'sheet');
+    else assert.equal(uv[i * 2], g.uv[i * 2]);
+  }
+});
+
+test('地毯在最下層：後放的地毯不會蓋住茶几', () => {
+  const plan = room();
+  E.addFurniture(plan, 'coffee', [2, 1.5], 0);
+  E.addFurniture(plan, 'rug', [2, 1.5], 0);
+  assert.equal(F.hit(plan, [2, 1.5]).id, 'f1');
+  assert.equal(F.hit(plan, [2.9, 1.5]).id, 'f2');
+  assert.deepEqual(F.layered(plan).map(f => f.id), ['f2', 'f1']);
+});
