@@ -49,10 +49,11 @@
     return (h || 2.8) + SLAB;
   }
 
-  // 牆的外框（只看牆，不看原圖大小）；沒有牆時回傳 null
-  function wallBox(plan) {
+  // 牆的外框（只看牆，不看原圖大小）；indoor 為 true 時不算陽台的矮牆、欄杆。沒有牆時回傳 null
+  function wallBox(plan, indoor) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const w of plan.walls || []) {
+      if (indoor && w.kind) continue;
       for (const p of [w.a, w.b]) {
         minX = Math.min(minX, p[0]); minY = Math.min(minY, p[1]);
         maxX = Math.max(maxX, p[0]); maxY = Math.max(maxY, p[1]);
@@ -101,6 +102,22 @@
     return f.name;
   }
 
+  // 3D 用：目前樓層以外要畫的樓層。預設只有下面的樓層；whole 為 true（看整棟）時連上面的樓層也畫，
+  // 另外加一筆 slabOnly 的目前樓層，只畫它頂上的樓板
+  function context(b, index, whole) {
+    if (index == null) index = b.active;
+    const out = below(b, index), cur = b.floors[index];
+    if (!whole || !cur) return out;
+    out.push({ id: cur.id, name: cur.name, plan: cur.plan, dx: 0, dy: 0, y: 0, slabOnly: true });
+    let y = 0;
+    for (let i = index + 1; i < b.floors.length; i++) {
+      const f = b.floors[i];
+      y += floorHeight(b.floors[i - 1].plan);
+      out.push({ id: f.id, name: f.name, plan: f.plan, dx: round(f.offset[0] - cur.offset[0]), dy: round(f.offset[1] - cur.offset[1]), y: round(y) });
+    }
+    return out;
+  }
+
   // 3D 用：目前樓層下面的每一層，相對於目前樓層的位置（dx、dy 是平面圖座標的位移，y 是高度，往下為負）
   function below(b, index) {
     if (index == null) index = b.active;
@@ -117,5 +134,5 @@
 
   const round = v => Math.round(v * 1000) / 1000;
 
-  return { SLAB, isBuilding, wrap, toJSON, validate, floorHeight, wallBox, addFloor, removeFloor, rename, below };
+  return { SLAB, isBuilding, wrap, toJSON, validate, floorHeight, wallBox, addFloor, removeFloor, rename, below, context };
 });

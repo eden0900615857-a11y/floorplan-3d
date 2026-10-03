@@ -41,9 +41,17 @@
     return new Uint8Array(buf);
   }
 
-  // 平面圖 → 網址用的字串
+  // 整棟房子（多樓層）：每一層各自精簡
+  const isBuilding = v => !!v && v.type === 'building' && Array.isArray(v.floors);
+  function stripAny(v) {
+    if (!isBuilding(v)) return strip(v);
+    return { version: 1, type: 'building', active: v.active | 0,
+      floors: v.floors.map(f => ({ id: f.id, name: f.name, offset: (f.offset || [0, 0]).map(round), plan: strip(f.plan) })) };
+  }
+
+  // 平面圖或整棟房子 → 網址用的字串
   async function encode(plan) {
-    const bytes = new TextEncoder().encode(JSON.stringify(strip(plan)));
+    const bytes = new TextEncoder().encode(JSON.stringify(stripAny(plan)));
     if (!hasStream) return RAW + toB64url(bytes);
     return DEFLATE + toB64url(await pipe(bytes, new CompressionStream('deflate-raw')));
   }
@@ -61,7 +69,8 @@
     } catch (e) {
       throw broken();
     }
-    const errors = FPPlan.validate(plan);
+    const errors = !isBuilding(plan) ? FPPlan.validate(plan)
+      : plan.floors.length ? [].concat(...plan.floors.map(f => FPPlan.validate(f && f.plan))) : ['沒有任何樓層'];
     if (errors.length) throw new Error('分享連結裡的平面圖有問題：' + errors.slice(0, 2).join('；'));
     return plan;
   }
@@ -76,5 +85,5 @@
     return base.replace(/#.*$/, '') + '#' + KEY + '=' + data;
   }
 
-  return { strip, encode, decode, fromHash, link };
+  return { strip, stripAny, encode, decode, fromHash, link };
 });
