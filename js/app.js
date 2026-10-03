@@ -147,6 +147,8 @@
     const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, {
       minGap: 0.5 * ppm, maxGap: 2.5 * ppm, hint: ml ? FPML.openingHint(ml, src.w, src.h) : null
     });
+    // 外牆沒畫完整（圖片裁掉、陽台只有細欄杆線）的地方，把牆沿著外緣延伸接起來，讓房間封閉
+    FPVectorize.closeOuter(ops.segments, src.w, src.h, { tol: 0.25 * ppm, reach: 0.5 * ppm, maxLen: 6 * ppm });
     const p = FPPlan.fromSegments(ops.segments, {
       widthPx: src.w, heightPx: src.h,
       pxPerMeter: ppm,
