@@ -180,6 +180,7 @@
         <button type="button" role="tab" id="tab3d" aria-selected="true" aria-controls="view">3D 檢視</button>
         <button type="button" role="tab" id="tab2d" aria-selected="false" aria-controls="editor">2D 校正</button>
         <button type="button" role="tab" id="tabPick" aria-selected="false" aria-controls="pick" hidden>選擇範圍</button>
+        <button type="button" role="tab" id="tabFacade" aria-selected="false" aria-controls="facade">外觀圖</button>
       </div>
       <div class="view" id="view" role="tabpanel" aria-labelledby="tab3d">
         <span class="viewtag" id="viewTag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
@@ -261,6 +262,17 @@
         <div class="editcanvas" id="pickCanvas"></div>
         <p class="toolhint" id="pickHint" role="status">在圖紙上拖曳，框出要轉成 3D 的那一層平面圖。只框平面圖本身，不要把面積表、圖框或其他樓層框進來。比例照圖名旁的標示填寫（例如 1/100 就填 100）。</p>
       </div>
+      <div class="editor" id="facade" role="tabpanel" aria-labelledby="tabFacade" hidden>
+        <div class="toolbar">
+          <button type="button" id="facadeOpen">選擇外觀圖片</button>
+          <input id="facadeFile" type="file" accept="image/*" hidden>
+          <label class="thick" for="facadeSide">這張是 <select id="facadeSide"></select></label>
+          <button type="button" id="facadeApply" class="primary" disabled>貼到 3D</button>
+          <span class="thick facades" id="facadeList" role="list" aria-label="已貼上的外觀圖"></span>
+        </div>
+        <div class="editcanvas" id="facadeCanvas"></div>
+        <p class="toolhint" id="facadeHint" role="status">上傳外觀照片或效果圖，選這張拍的是哪一面，再把四個角拖到那一面牆的四個角（左右是整面外牆的兩端，下面是地面，上面是這一層的牆頂），按「貼到 3D」。有好幾層樓時，每一層各自貼：切到那一層，四個角對到那一層的範圍。</p>
+      </div>
       <div class="drop" id="drop" hidden>放開以載入平面圖</div>
     </div>
   </div>
@@ -283,6 +295,8 @@
 <script src="js/furniture.js"></script>
 <script src="js/walk.js"></script>
 <script src="js/sample.js"></script>
+<script src="js/facade.js"></script>
+<script src="js/facadepick.js"></script>
 <script src="js/scene.js"></script>
 <script src="js/rooms.js"></script>
 <script src="js/schemes.js"></script>
