@@ -29,6 +29,8 @@
 
     const box = new THREE.BoxGeometry(1, 1, 1);
     box.translate(0, 0.5, 0);
+    const cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 28);
+    cyl.translate(0, 0.5, 0);
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xeef1f4, roughness: 0.85 });
     const glassMat = new THREE.MeshStandardMaterial({ color: 0x9cc7e8, roughness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
     let walls = null, glass = null, floor = null, span = 0;
@@ -207,7 +209,7 @@
       ceilings.visible = !!walk;
       scene.add(ceilings);
 
-      // 家具：有模型的用模型，否則由幾個方塊組成（共用同一個方塊幾何）
+      // 家具：有模型的用模型，否則由方塊和橢圓柱組成（共用同一個方塊、圓柱幾何）
       furniture = new THREE.Group();
       for (const f of plan.furniture || []) {
         const def = FPFurniture.item(f.model), geo = def && modelGeometry(def.mesh);
@@ -224,11 +226,11 @@
         }
         for (const b of FPFurniture.parts(f)) {
           if (!colorMats.has(b.color)) colorMats.set(b.color, new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.75 }));
-          const mesh = new THREE.Mesh(box, colorMats.get(b.color));
+          const mesh = new THREE.Mesh(b.shape === 'cyl' ? cyl : box, b.glass ? glassMat : colorMats.get(b.color));
           mesh.position.set(b.x - cx, b.z0, b.y - cy);
           mesh.rotation.y = -b.rotation * Math.PI / 180;
           mesh.scale.set(Math.max(0.005, b.w), Math.max(0.005, b.z1 - b.z0), Math.max(0.005, b.d));
-          mesh.castShadow = true;
+          mesh.castShadow = !b.glass;
           mesh.receiveShadow = true;
           furniture.add(mesh);
         }
