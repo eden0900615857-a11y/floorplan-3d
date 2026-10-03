@@ -179,8 +179,8 @@
 
     // plan：平面圖 JSON；image：原圖（Canvas 或 Image），有的話貼在地板上
     // 多樓層的樓梯洞：這一層地板要挖掉的範圍（下面那一層的樓梯，平面圖座標），由 setHoles 設定
-    let floorHoles = [];
-    function setHoles(list) { floorHoles = list || []; }
+    let floorHoles = [], stairsDown = [];
+    function setHoles(list) { stairsDown = list || []; floorHoles = stairsDown.map(st => st.poly); }
     // 多邊形（平面圖座標）→ THREE.Shape，挖掉 holes。洞超出多邊形時先裁到多邊形裡面（多邊形是凸的才裁，否則只挖完全在裡面的洞）
     const area2 = poly => poly.reduce((a, p, i) => { const q = poly[(i + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0);
     function convex(poly) {
@@ -320,6 +320,21 @@
         mesh.receiveShadow = true;
         walls.push(mesh);
       }
+      // 樓梯洞的欄杆：除了樓梯頂端那一邊，其他三邊圍玻璃欄杆（高 1 公尺）
+      for (const st of stairsDown) {
+        const q = st.poly;
+        for (const [i, j] of [[1, 2], [2, 3], [3, 0]]) {
+          const w = { a: q[i], b: q[j], thickness: 0.05 }, L = FPPlan.wallLength(w);
+          if (L < 0.05) continue;
+          rails.push({ w, L, s0: 0, s1: L, y0: 0.96, y1: 1, t: 0.05 });
+          panes.push({ w, L, s0: 0.02, s1: L - 0.02, y0: 0.05, y1: 0.96, t: 0.015 });
+          const n = Math.max(1, Math.ceil(L / 1.2));
+          for (let k = 0; k <= n; k++) {
+            const sm = Math.min(L - 0.02, Math.max(0.02, L * k / n));
+            rails.push({ w, L, s0: sm - 0.02, s1: sm + 0.02, y0: 0, y1: 0.96, t: 0.04 });
+          }
+        }
+      }
       glass = instanced(panes, glassMat);
       if (rails.length) {
         const mesh = instanced(rails, partMats.handle);
@@ -390,7 +405,7 @@
           if (!colorMats.has(b.color)) colorMats.set(b.color, new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.75 }));
           const mesh = new THREE.Mesh(b.shape === 'cyl' ? cyl : box, b.glass ? glassMat : colorMats.get(b.color));
           mesh.position.set(b.x - cx, b.z0, b.y - cy);
-          mesh.rotation.y = -b.rotation * Math.PI / 180;
+          mesh.rotation.set(b.tilt || 0, -b.rotation * Math.PI / 180, 0, 'YXZ');   // tilt：樓梯扶手的斜度
           mesh.scale.set(Math.max(0.005, b.w), Math.max(0.005, b.z1 - b.z0), Math.max(0.005, b.d));
           mesh.castShadow = !b.glass;
           mesh.receiveShadow = true;
@@ -418,7 +433,7 @@
       }
       scene.add(lamps);
       applyLight();
-      if (walk) walk.solids = FPWalk.solids(plan);
+      if (walk) walkSolids();
 
       const newSpan = Math.max(fw, fh);
       const sh = sun.shadow.camera;
@@ -501,7 +516,7 @@
               if (!colorMats.has(b.color)) colorMats.set(b.color, new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.75 }));
               const mesh = new THREE.Mesh(box, colorMats.get(b.color));
               mesh.position.set(b.x, b.z0, b.y);
-              mesh.rotation.y = -b.rotation * Math.PI / 180;
+              mesh.rotation.set(b.tilt || 0, -b.rotation * Math.PI / 180, 0, 'YXZ');
               mesh.scale.set(Math.max(0.005, b.w), Math.max(0.005, b.z1 - b.z0), Math.max(0.005, b.d));
               g.add(mesh);
             }
@@ -526,11 +541,27 @@
       scene.add(context);
     }
 
+    // 漫遊的擋路範圍和樓梯斜坡（往上的樓梯、下面上來的樓梯洞）
+    function walkSolids() {
+      walk.ramps = FPWalk.ramps(plan, FPBuilding.floorHeight(plan), stairsDown);
+      walk.solids = FPWalk.solids(plan).concat(FPWalk.rampSolids(walk.ramps));
+    }
+    // 走到樓梯頂端或走下樓梯洞時通知（app 換樓層後呼叫 shiftWalk）
+    let onFloor = null;
+    function shiftWalk(dx, dy) {
+      if (!walk) return;
+      walk.state.x += dx; walk.state.y += dy;
+      walk.awaiting = false;
+      walk.pending = true;   // 剛換過來的位置可能還在觸發範圍，要先走出去
+      walk.snap = true;
+    }
+
     // 第一人稱：滑鼠或手指拖曳轉頭，input 由鍵盤或畫面上的按鈕設定
     function setWalk(on) {
       if (on && plan) {
-        const solids = FPWalk.solids(plan);
-        walk = { state: FPWalk.start(plan, solids), solids, input: {} };
+        walk = { input: {}, z: 0, snap: true };
+        walkSolids();
+        walk.state = FPWalk.start(plan, walk.solids);
         [walk.state.x, walk.state.y] = FPWalk.collide([walk.state.x, walk.state.y], walk.solids);
         controls.enabled = false;
         camera.fov = 70;
@@ -569,7 +600,11 @@
 
     function placeWalkCamera() {
       const st = walk.state;
-      camera.position.set(st.x - center[0], FPWalk.EYE, st.y - center[1]);
+      // 在樓梯上時眼睛跟著踏階升降（稍微平滑一點，換樓層的那一刻直接到位）
+      const on = FPWalk.rampAt(walk.ramps, [st.x, st.y]), z = on ? on.z : 0;
+      walk.z = walk.snap ? z : walk.z + (z - walk.z) * 0.25;
+      walk.snap = false;
+      camera.position.set(st.x - center[0], FPWalk.EYE + walk.z, st.y - center[1]);
       // yaw 是平面圖上的方向（y 向下），3D 的 z 軸就是平面圖的 y
       const dx = Math.cos(st.yaw) * Math.cos(st.pitch), dz = Math.sin(st.yaw) * Math.cos(st.pitch), dy = Math.sin(st.pitch);
       camera.lookAt(camera.position.x + dx, camera.position.y + dy, camera.position.z + dz);
@@ -605,6 +640,13 @@
       last = now || performance.now();
       if (walk) {
         FPWalk.step(walk.state, walk.input, dt, walk.solids);
+        // 換樓層：onFloor 回傳 true 表示開始換（等 shiftWalk），否則等走出樓梯頂端或洞底再說
+        if (onFloor && !walk.awaiting) {
+          const d = FPWalk.floorChange(walk.ramps, [walk.state.x, walk.state.y]);
+          // awaiting 要先設好：樓層可能在 onFloor 裡面就換完（shiftWalk 會清掉它）
+          if (d && !walk.pending) { walk.pending = walk.awaiting = true; if (!onFloor(d)) walk.awaiting = false; }
+          else if (!d) walk.pending = false;
+        }
         placeWalkCamera();
       } else {
         controls.update();
@@ -625,8 +667,10 @@
     }
 
     return {
-      setPlan, setContext, setHoles, resetCamera, viewWhole, setWalk, setLight, snapshot,
+      setPlan, setContext, setHoles, resetCamera, viewWhole, setWalk, setLight, snapshot, shiftWalk,
+      set onFloor(fn) { onFloor = fn; },
       get walking() { return !!walk; },
+      get walkState() { return walk ? walk.state : null; },
       // 漫遊時的移動輸入：{forward, back, left, right, turnLeft, turnRight, fast}
       setInput(key, value) { if (walk) walk.input[key] = value; }
     };

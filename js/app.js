@@ -192,6 +192,17 @@
     view3d.setContext(building ? FPBuilding.context(building, building.active, many && wholeHouse) : []);
   }
 
+  // 漫遊走樓梯上下樓：換到上面或下面那一層，人的位置換成那一層的座標，繼續漫遊
+  let walkShift = null;
+  view3d.onFloor = d => {
+    const i = building ? building.active + d : -1;
+    if (!building || !building.floors[i]) { note(d > 0 ? '上面沒有樓層了，可以先「新增樓層」。' : ''); return false; }
+    const a = building.floors[building.active].offset, b = building.floors[i].offset;
+    walkShift = [a[0] - b[0], a[1] - b[1]];
+    switchFloor(i);
+    return true;
+  };
+
   function switchFloor(i) {
     if (!building || !building.floors[i] || i === building.active) return;
     save();
@@ -352,8 +363,15 @@
   function refresh() {
     const image = src ? src.canvas : null;
     drawPreview(plan, image);
-    view3d.setHoles(building ? FPBuilding.stairHoles(building) : []);
+    view3d.setHoles(building ? FPBuilding.stairsBelow(building) : []);
+    // 2D：下面那一層的牆和樓梯洞當參考
+    const low = building ? FPBuilding.below(building)[0] : null;
+    editor.setUnderlay(low ? {
+      walls: low.plan.walls.map(w => ({ a: [w.a[0] + low.dx, w.a[1] + low.dy], b: [w.b[0] + low.dx, w.b[1] + low.dy], thickness: w.thickness })),
+      holes: FPBuilding.stairHoles(building)
+    } : null);
     view3d.setPlan(plan, image);
+    if (walkShift) { view3d.shiftWalk(walkShift[0], walkShift[1]); walkShift = null; }
     syncContext();
     syncFloors();
     const bb = FPPlan.bounds(plan);

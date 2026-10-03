@@ -103,13 +103,21 @@
     return f.name;
   }
 
-  // 樓梯洞：第 index 層的地板要挖掉的範圍，也就是下面那一層的樓梯範圍，換成第 index 層的座標
-  function stairHoles(b, index) {
+  // 從下面那一層上來的樓梯：範圍（換成第 index 層的座標，順序同 FPFurniture.footprint：背左、背右、前右、前左）
+  // 和樓梯的高度。漫遊下樓、洞口欄杆用
+  function stairsBelow(b, index) {
     if (index == null) index = b.active;
     const cur = b.floors[index], low = b.floors[index - 1];
     if (!cur || !low) return [];
-    const dx = low.offset[0] - cur.offset[0], dy = low.offset[1] - cur.offset[1];
-    return FPFurniture.stairsOf(low.plan).map(f => FPFurniture.footprint(f).map(p => [round(p[0] + dx), round(p[1] + dy)]));
+    const dx = low.offset[0] - cur.offset[0], dy = low.offset[1] - cur.offset[1], fh = floorHeight(low.plan);
+    return FPFurniture.stairsOf(low.plan).map(f => ({
+      poly: FPFurniture.footprint(f).map(p => [round(p[0] + dx), round(p[1] + dy)]), h: f.h || fh
+    }));
+  }
+
+  // 樓梯洞：第 index 層的地板要挖掉的範圍，也就是下面那一層的樓梯範圍
+  function stairHoles(b, index) {
+    return stairsBelow(b, index).map(s => s.poly);
   }
 
   // 3D 用：目前樓層以外要畫的樓層。預設只有下面的樓層；whole 為 true（看整棟）時連上面的樓層也畫，
@@ -144,5 +152,5 @@
 
   const round = v => Math.round(v * 1000) / 1000;
 
-  return { SLAB, isBuilding, wrap, toJSON, validate, floorHeight, wallBox, addFloor, removeFloor, rename, below, context, stairHoles };
+  return { SLAB, isBuilding, wrap, toJSON, validate, floorHeight, wallBox, addFloor, removeFloor, rename, below, context, stairHoles, stairsBelow };
 });

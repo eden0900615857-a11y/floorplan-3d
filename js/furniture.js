@@ -105,7 +105,8 @@
   const CATS = ['客廳', '臥室', '餐廚', '衛浴', '樓梯', '其他'];
   const RISER = 0.18;   // 每階大約的高度（公尺）
 
-  // 直樓梯的踏階和扶手（格式同 CATALOG 的 parts，z 已經是比例）：正面（y = 1）是第一階，往背面爬到頂
+  // 直樓梯的踏階和扶手（格式同 CATALOG 的 parts，z 已經是比例）：正面（y = 1）是第一階，往背面爬到頂。
+  // 扶手是一根斜的長條（形狀 'rail'：z0 是正面那一端的高度、z1 是背面那一端），高到上一層地板為止
   function stairParts(h) {
     const n = Math.max(2, Math.round(h / RISER)), out = [], railZ = 0.9 / h, T = 0.05 / h;
     for (let i = 0; i < n; i++) {
@@ -113,11 +114,14 @@
       out.push([0, 1, y0, y1, z - T, z, 'stair']);               // 踏板
       out.push([0, 1, y1 - 0.004, y1, 0, z - T, 'riser']);      // 踢板（看起來像實心的樓梯）
       out.push([0.97, 1, y0, y1, 0, z, 'riser']);               // 靠牆那一側的側板
-      // 欄杆立柱和扶手（跟著踏階一段一段），最高到上一層的地板，不會穿出去
-      const top = Math.min(1, z + railZ);
-      if (top - z < 0.3 / h) continue;
-      if (i % 2 === 0) out.push([0.03, 0.05, (y0 + y1) / 2 - 0.004, (y0 + y1) / 2 + 0.004, z, top, 'black']);
-      out.push([0.02, 0.06, y0, y1, top, top + 0.04 / h, 'darkwood']);
+    }
+    // 扶手沿著踏階的斜線，比踏階高 railZ；到上一層地板（高度 1）就停
+    const end = Math.max(0.2, 1 - railZ);
+    out.push([0.02, 0.06, 1 - end, 1, railZ, end + railZ, 'darkwood', 'rail']);
+    for (let i = 0; i < n; i += 2) {
+      const a = (i + 0.5) / n;
+      if (a > end) break;
+      out.push([0.03, 0.05, 1 - a - 0.004, 1 - a + 0.004, a - 0.5 / n, a + railZ, 'black']);   // 欄杆立柱
     }
     return out;
   }
@@ -180,6 +184,15 @@
     const mainKey = def.parts[0][6];
     return (def.stairs ? stairParts(h) : def.parts).map(([x0, x1, y0, y1, z0, z1, c, shape]) => {
       const sx = ((x0 + x1) / 2 - 0.5) * f.w, sy = ((y0 + y1) / 2 - 0.5) * f.d;
+      if (shape === 'rail') {
+        // 斜的長條：tilt 是往背面抬高的角度，d 是斜邊長度，z0–z1 是中心高度上下 2 公分
+        const run = (y1 - y0) * f.d, rise = (z1 - z0) * h, zc = (z0 + z1) / 2 * h;
+        return {
+          x: f.pos[0] + ux[0] * sx + fy[0] * sy, y: f.pos[1] + ux[1] * sx + fy[1] * sy,
+          w: (x1 - x0) * f.w, d: Math.hypot(run, rise), z0: zc - 0.02, z1: zc + 0.02, tilt: Math.atan2(rise, run),
+          rotation: f.rotation || 0, color: C[c] || c, shape: 'box', glass: false
+        };
+      }
       return {
         x: f.pos[0] + ux[0] * sx + fy[0] * sy, y: f.pos[1] + ux[1] * sx + fy[1] * sy,
         w: (x1 - x0) * f.w, d: (y1 - y0) * f.d, z0: z0 * h, z1: z1 * h,
@@ -192,7 +205,8 @@
   // 漫遊時擋路的範圍（格式同 FPWalk.solids）：比腳踝高的家具才擋
   function solid(f) {
     const def = item(f.model);
-    if (!def || (f.h || def.h) < 0.1 || def.id === 'shower') return null;
+    // 樓梯可以走上去（FPWalk.ramps 只擋兩側），淋浴間可以走進去
+    if (!def || (f.h || def.h) < 0.1 || def.id === 'shower' || def.stairs) return null;
     const { ux } = axes(f);
     return { ax: f.pos[0] - ux[0] * f.w / 2, ay: f.pos[1] - ux[1] * f.w / 2, ux: ux[0], uy: ux[1], s0: 0, s1: f.w, h: f.d / 2 };
   }
