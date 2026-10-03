@@ -124,9 +124,20 @@
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.stroke();
+      const def = FPFurniture.item(f.model);
+      // 樓梯：畫出踏階的線（正面是第一階，往背面爬上去）
+      if (def && def.stairs) {
+        const n = Math.max(2, Math.round(f.d / 0.25)), lerp = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 1; i < n; i++) {
+          const a = lerp(pts[3], pts[0], i / n), b = lerp(pts[2], pts[1], i / n);
+          ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+        }
+        ctx.stroke();
+      }
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(pts[2][0], pts[2][1]); ctx.lineTo(pts[3][0], pts[3][1]); ctx.stroke();
-      const def = FPFurniture.item(f.model);
       if (def && Math.min(f.w, f.d) * view.s > 18 && Math.max(f.w, f.d) * view.s > 44) {
         const c = toScreen(f.pos);
         ctx.fillStyle = color;

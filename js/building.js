@@ -2,10 +2,11 @@
 // 另外記錄樓層名稱與 offset（這一層的平面圖座標加上 offset，就是整棟房子共用的座標，用來上下對齊）。
 // 只有一層時存檔、下載都還是原本的平面圖 JSON，舊檔案不受影響。
 (function (root, factory) {
-  const api = factory(root.FPPlan || (typeof require === 'function' ? require('./plan.js') : null));
+  const api = factory(root.FPPlan || (typeof require === 'function' ? require('./plan.js') : null),
+    root.FPFurniture || (typeof require === 'function' ? require('./furniture.js') : null));
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.FPBuilding = api;
-})(typeof self !== 'undefined' ? self : this, function (FPPlan) {
+})(typeof self !== 'undefined' ? self : this, function (FPPlan, FPFurniture) {
   const SLAB = 0.15;          // 樓板厚度（公尺）
 
   function isBuilding(v) {
@@ -102,6 +103,15 @@
     return f.name;
   }
 
+  // 樓梯洞：第 index 層的地板要挖掉的範圍，也就是下面那一層的樓梯範圍，換成第 index 層的座標
+  function stairHoles(b, index) {
+    if (index == null) index = b.active;
+    const cur = b.floors[index], low = b.floors[index - 1];
+    if (!cur || !low) return [];
+    const dx = low.offset[0] - cur.offset[0], dy = low.offset[1] - cur.offset[1];
+    return FPFurniture.stairsOf(low.plan).map(f => FPFurniture.footprint(f).map(p => [round(p[0] + dx), round(p[1] + dy)]));
+  }
+
   // 3D 用：目前樓層以外要畫的樓層。預設只有下面的樓層；whole 為 true（看整棟）時連上面的樓層也畫，
   // 另外加一筆 slabOnly 的目前樓層，只畫它頂上的樓板
   function context(b, index, whole) {
@@ -113,7 +123,7 @@
     for (let i = index + 1; i < b.floors.length; i++) {
       const f = b.floors[i];
       y += floorHeight(b.floors[i - 1].plan);
-      out.push({ id: f.id, name: f.name, plan: f.plan, dx: round(f.offset[0] - cur.offset[0]), dy: round(f.offset[1] - cur.offset[1]), y: round(y) });
+      out.push({ id: f.id, name: f.name, plan: f.plan, dx: round(f.offset[0] - cur.offset[0]), dy: round(f.offset[1] - cur.offset[1]), y: round(y), holes: stairHoles(b, i) });
     }
     return out;
   }
@@ -127,12 +137,12 @@
     for (let i = index - 1; i >= 0; i--) {
       const f = b.floors[i];
       y -= floorHeight(f.plan);
-      out.push({ id: f.id, name: f.name, plan: f.plan, dx: round(f.offset[0] - cur.offset[0]), dy: round(f.offset[1] - cur.offset[1]), y: round(y) });
+      out.push({ id: f.id, name: f.name, plan: f.plan, dx: round(f.offset[0] - cur.offset[0]), dy: round(f.offset[1] - cur.offset[1]), y: round(y), holes: stairHoles(b, i) });
     }
     return out;
   }
 
   const round = v => Math.round(v * 1000) / 1000;
 
-  return { SLAB, isBuilding, wrap, toJSON, validate, floorHeight, wallBox, addFloor, removeFloor, rename, below, context };
+  return { SLAB, isBuilding, wrap, toJSON, validate, floorHeight, wallBox, addFloor, removeFloor, rename, below, context, stairHoles };
 });

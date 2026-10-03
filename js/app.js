@@ -352,6 +352,7 @@
   function refresh() {
     const image = src ? src.canvas : null;
     drawPreview(plan, image);
+    view3d.setHoles(building ? FPBuilding.stairHoles(building) : []);
     view3d.setPlan(plan, image);
     syncContext();
     syncFloors();
