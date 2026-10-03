@@ -92,3 +92,18 @@ test('openingParts：窗有四邊窗框、寬窗加中間直框、有窗台板�
   const narrow = plan.openingParts(wall, plan.openingSpans(wall, [{ ...win, width: 0.6, sill: 0 }])[0]);
   assert.strictEqual(narrow.length, 4);
 });
+
+test('faceRooms：外牆跨兩個房間時切成兩段，左右牆面各自對到房間', () => {
+  const wall = { id: 'w1', a: [0, 0], b: [7, 0], thickness: 0.2, height: 2.8 };
+  const A = { id: 'A' }, B = { id: 'B' };
+  // a→b 往右（x 增加），左側法向量是 (0, −1)：牆的上方是屋外，下方是房間；x = 3.4–3.6 是隔間牆
+  const roomAt = p => p[1] <= 0 ? null : p[0] < 3.4 ? A : p[0] > 3.6 ? B : null;
+  const runs = plan.faceRooms(wall, 0, 7, roomAt);
+  assert.equal(runs.length, 2);
+  assert.deepEqual(runs.map(r => [r.left, r.right]), [[null, A], [null, B]]);
+  assert.equal(runs[0].s0, 0);
+  assert.equal(runs[1].s1, 7);
+  assert.ok(runs[0].s1 >= 3.4 && runs[0].s1 <= 3.7, '分段點在隔間牆裡：' + runs[0].s1);
+  // 只有一個房間：一段
+  assert.equal(plan.faceRooms(wall, 1, 3, roomAt).length, 1);
+});

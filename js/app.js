@@ -6,6 +6,7 @@
   const STORAGE_KEY = 'floorplan-3d:last-plan';
   const EDITED_KEY = 'floorplan-3d:edited';
   const AI_KEY = 'floorplan-3d:ai';               // 使用者有沒有打開 AI 辨識
+  const LIGHT_KEY = 'floorplan-3d:light';         // 3D 的光線：白天、傍晚、夜晚
 
   let src = null;      // 目前的原圖：{w, h, gray, canvas, dataURL}；PDF 另有 vector: {lines, ppm}，fromPdf 表示原圖來自 PDF
   let pdf = null;      // 目前開啟的 PDF：{doc, page}
@@ -35,7 +36,7 @@
         syncFurnColor(furn.color || '');
       }
       $('roomCtl').hidden = !room;
-      if (room) { $('roomName').value = room.name; $('roomFloor').value = FPMaterials.floor(room.floor).id; }
+      if (room) { $('roomName').value = room.name; $('roomFloor').value = FPMaterials.floor(room.floor).id; $('roomPaint').value = room.paint || ''; }
       $('thick').disabled = !wall;
       $('thick').value = wall ? wall.thickness : '';
       $('openWCtl').hidden = !op;
@@ -316,7 +317,7 @@
       dl.append(dt, dd);
     };
     for (const f of q.floors) row(f.name, f.area.toFixed(1) + ' m²（叫料 ' + f.order.toFixed(1) + '）');
-    row('牆面油漆（' + q.wall.name + '）', q.wall.area.toFixed(1) + ' m² · 約 ' + q.wall.liters + ' 公升');
+    for (const p of q.paints) row('牆面油漆（' + p.name + '）', p.area.toFixed(1) + ' m² · 約 ' + p.liters + ' 公升');
     row('家具', q.furniture.length ? q.furniture.map(f => f.name + (f.count > 1 ? ' ×' + f.count : '')).join('、') : '還沒有擺家具');
   }
 
@@ -596,6 +597,13 @@
     $('roomFloor').appendChild(o);
   }
   $('roomFloor').addEventListener('change', () => editor.setRoomFloor($('roomFloor').value));
+  // 房間牆色：第一項是跟全屋一樣
+  for (const w of [{ id: '', name: '跟全屋一樣' }, ...FPMaterials.WALLS]) {
+    const o = document.createElement('option');
+    o.value = w.id; o.textContent = w.name;
+    $('roomPaint').appendChild(o);
+  }
+  $('roomPaint').addEventListener('change', () => editor.setRoomPaint($('roomPaint').value));
 
   // 家具：依分類列出家具庫
   for (const cat of FPFurniture.CATS) {
@@ -634,6 +642,15 @@
   const switchScheme = id => editor.schemeOp(p => (p.activeScheme === id ? false : !!FPSchemes.switchTo(p, id)));
   $('scheme').addEventListener('change', () => switchScheme($('scheme').value));
   $('schemeQuick').addEventListener('change', () => switchScheme($('schemeQuick').value));
+
+  // 光線：只影響 3D 的顯示，記在瀏覽器裡
+  try { $('lightMode').value = localStorage.getItem(LIGHT_KEY) || 'day'; } catch (e) { /* 不允許時略過 */ }
+  if (!$('lightMode').value) $('lightMode').value = 'day';
+  view3d.setLight($('lightMode').value);
+  $('lightMode').addEventListener('change', () => {
+    view3d.setLight($('lightMode').value);
+    try { localStorage.setItem(LIGHT_KEY, $('lightMode').value); } catch (e) { /* 不允許時略過 */ }
+  });
   $('schemeCopy').addEventListener('click', () => editor.schemeOp(p => { FPSchemes.add(p, false); }));
   $('schemeBlank').addEventListener('click', () => editor.schemeOp(p => { FPSchemes.add(p, true); }));
   $('schemeName').addEventListener('change', () => editor.schemeOp(p => {

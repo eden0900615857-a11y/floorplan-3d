@@ -1,5 +1,5 @@
 // 裝修方案：同一份平面圖（牆、門窗、房間）搭配不同的家具、地板與牆面顏色。
-// 平面圖上的 furniture、materials 與每個房間的 floor 永遠是「目前方案」的內容；
+// 平面圖上的 furniture、materials 與每個房間的 floor、paint（牆色）永遠是「目前方案」的內容；
 // plan.schemes 另外保存每個方案的一份副本，切換方案時把副本套回平面圖。
 (function (root, factory) {
   const api = factory();
@@ -10,9 +10,12 @@
 
   // 平面圖目前的裝修內容。地板用房間 id 對應，重新找房間時 id 會保留
   function capture(plan) {
-    const floors = {};
-    for (const r of plan.rooms || []) if (r.floor) floors[r.id] = r.floor;
-    return { furniture: clone(plan.furniture || []), materials: clone(plan.materials || {}), floors };
+    const floors = {}, paints = {};
+    for (const r of plan.rooms || []) {
+      if (r.floor) floors[r.id] = r.floor;
+      if (r.paint) paints[r.id] = r.paint;
+    }
+    return { furniture: clone(plan.furniture || []), materials: clone(plan.materials || {}), floors, paints };
   }
 
   function apply(plan, s) {
@@ -21,6 +24,8 @@
     for (const r of plan.rooms || []) {
       if (s.floors && s.floors[r.id]) r.floor = s.floors[r.id];
       else delete r.floor;
+      if (s.paints && s.paints[r.id]) r.paint = s.paints[r.id];
+      else delete r.paint;
     }
   }
 
@@ -73,7 +78,7 @@
   // 新增方案：blank 為 true 時是空的（沒有家具、預設材質），否則複製目前方案
   function add(plan, blank) {
     sync(plan);
-    const base = blank ? { furniture: [], materials: {}, floors: {} } : capture(plan);
+    const base = blank ? { furniture: [], materials: {}, floors: {}, paints: {} } : capture(plan);
     const s = { id: nextId(plan), name: nextName(plan), ...clone(base) };
     plan.schemes.push(s);
     plan.activeScheme = s.id;

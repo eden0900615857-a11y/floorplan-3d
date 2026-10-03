@@ -205,5 +205,36 @@
     return parts;
   }
 
-  return { VERSION, OPENING_DEFAULTS, fromSegments, makeOpening, validate, bounds, wallLength, openingsOf, openingSpans, wallPieces, openingParts };
+  // 3D 牆色用：一段牆（沿牆 s0–s1）的左右兩個牆面各屬於哪個房間。
+  // roomAt([x, y]) 回傳該點所在的房間或 null；每 step 公尺在牆面外 0.15 公尺取樣，
+  // 落在隔間牆裡（沒有房間）的取樣跟著前一個，回傳 [{s0, s1, left, right}]，左右房間相同的連成一段。
+  function faceRooms(wall, s0, s1, roomAt, step) {
+    const L = wallLength(wall);
+    if (!L || s1 <= s0) return [];
+    step = step || 0.1;
+    const ux = (wall.b[0] - wall.a[0]) / L, uy = (wall.b[1] - wall.a[1]) / L, d = wall.thickness / 2 + 0.15;
+    const n = Math.max(1, Math.round((s1 - s0) / step)), ds = (s1 - s0) / n;
+    const at = (s, k) => roomAt([wall.a[0] + ux * s + uy * d * k, wall.a[1] + uy * s - ux * d * k]);
+    const samples = [];
+    for (let i = 0; i < n; i++) {
+      const s = s0 + (i + 0.5) * ds;
+      samples.push([at(s, 1), at(s, -1)]);
+    }
+    // 沒有房間的取樣：先往前補，開頭的再往後補
+    for (const k of [0, 1]) {
+      let last = null;
+      for (const sm of samples) { if (sm[k]) last = sm[k]; else sm[k] = last; }
+      last = null;
+      for (let i = samples.length - 1; i >= 0; i--) { if (samples[i][k]) last = samples[i][k]; else samples[i][k] = last; }
+    }
+    const runs = [];
+    samples.forEach((sm, i) => {
+      const prev = runs[runs.length - 1];
+      if (prev && prev.left === sm[0] && prev.right === sm[1]) prev.s1 = s0 + (i + 1) * ds;
+      else runs.push({ s0: s0 + i * ds, s1: s0 + (i + 1) * ds, left: sm[0], right: sm[1] });
+    });
+    return runs;
+  }
+
+  return { VERSION, OPENING_DEFAULTS, fromSegments, makeOpening, validate, bounds, wallLength, openingsOf, openingSpans, wallPieces, openingParts, faceRooms };
 });

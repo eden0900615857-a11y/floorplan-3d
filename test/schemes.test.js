@@ -105,3 +105,19 @@ test('材料用量：地板依材質加總、油漆扣門窗、家具清單', ()
   assert.equal(q.wall.liters, Math.ceil(q.wall.area * 2 / 10));
   assert.deepEqual(q.furniture, [{ name: '椅子', count: 2 }, { name: '餐桌', count: 1 }]);
 });
+
+test('房間牆色：各方案各自保存，材料用量依牆色分開算', () => {
+  const plan = S.ensure(house());
+  S.add(plan, false);
+  plan.rooms[1].paint = 'paint-blue';
+  S.switchTo(plan, 's1');
+  assert.equal(plan.rooms[1].paint, undefined);
+  S.switchTo(plan, 's2');
+  assert.equal(plan.rooms[1].paint, 'paint-blue');
+  const q = Q.estimate(plan);
+  // 客廳 13.2×2.8 − 門 1.89 − 窗 1.44；臥室 11.2×2.8 − 門 1.89
+  assert.deepEqual(q.paints.map(p => [p.id, p.rooms]), [['paint-white', ['客廳']], ['paint-blue', ['臥室']]]);
+  assert.ok(Math.abs(q.paints[0].area - (36.96 - 1.89 - 1.44)) < 0.01);
+  assert.ok(Math.abs(q.paints[1].area - (31.36 - 1.89)) < 0.01);
+  assert.ok(Math.abs(q.wall.area - (q.paints[0].area + q.paints[1].area)) < 0.01);
+});

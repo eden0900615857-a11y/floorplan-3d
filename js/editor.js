@@ -575,6 +575,16 @@
       commit();
     }
 
+    // 房間的牆色：paint 空字串表示跟全屋的牆面顏色一樣
+    function setRoomPaint(paint, roomId) {
+      const r = findRoom(roomId || selRoom);
+      if (!r || (r.paint || '') === (paint || '')) return;
+      history.record(plan);
+      if (paint) r.paint = paint;
+      else delete r.paint;
+      commit();
+    }
+
     function rotateFurniture(deg) {
       if (!selFurn || !FPEdit.findFurniture(plan, selFurn)) return;
       history.record(plan);
@@ -649,7 +659,7 @@
 
     return {
       setPlan, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setFurnitureColor, setWallPaint, schemeOp,
-      setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, setRoomFloor, rescale, cancel,
+      setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, setRoomFloor, setRoomPaint, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,
       get tool() { return tool; }

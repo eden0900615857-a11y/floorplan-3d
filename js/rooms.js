@@ -167,6 +167,7 @@
       if (old) used.add(old.id);
       const room = { id: old ? old.id : null, name: old ? old.name : null, polygon: r.polygon, area: r.area, label: r.label };
       if (old && old.floor) room.floor = old.floor;
+      if (old && old.paint) room.paint = old.paint;
       return room;
     });
     const ids = new Set(rooms.filter(r => r.id).map(r => r.id));

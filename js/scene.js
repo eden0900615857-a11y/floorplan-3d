@@ -38,8 +38,41 @@
       leaf: new THREE.MeshStandardMaterial({ color: 0xb08358, roughness: 0.7 }),
       handle: new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.25, metalness: 0.8 })
     };
+    // 房間各自的牆色（材質依油漆 id 共用）
+    const paintMats = new Map();
+    function paintMat(id) {
+      if (!paintMats.has(id)) paintMats.set(id, new THREE.MeshStandardMaterial({ color: FPMaterials.wall(id).color, roughness: 0.85 }));
+      return paintMats.get(id);
+    }
+    // 吸頂燈的燈罩：開燈時發光
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, emissive: 0xffe2b8, emissiveIntensity: 0 });
+    const MAX_LAMPS = 12;
+    // 光線：白天、傍晚、夜晚。數字依序是環境光、天空光、陽光、室內燈；walk 是走進室內時（避免牆面過曝）
+    const LIGHTS = {
+      day: { sun: 0xffffff, sky: 0xdde7ef, view: [0, 0.75, 0.75, 0], walk: [0.15, 0.55, 0.4, 0] },
+      evening: { sun: 0xffa860, sky: 0xe8b98f, view: [0, 0.4, 0.55, 0.7], walk: [0.06, 0.25, 0.3, 0.75] },
+      night: { sun: 0x8090b0, sky: 0x1c2333, view: [0.04, 0.1, 0, 0.9], walk: [0.04, 0.06, 0, 0.9] }
+    };
+    let lightMode = 'day';
+    function applyLight() {
+      const L = LIGHTS[lightMode] || LIGHTS.day, v = walk ? L.walk : L.view;
+      [ambient.intensity, hemi.intensity, sun.intensity] = v;
+      sun.color.set(L.sun);
+      sky.set(L.sky);
+      if (lamps) {
+        for (const m of lamps.children) {
+          if (m.isLight) m.intensity = v[3];
+          else m.visible = !!walk;
+        }
+      }
+      lampMat.emissiveIntensity = v[3] ? 1 : 0;
+    }
+    function setLight(mode) {
+      lightMode = LIGHTS[mode] ? mode : 'day';
+      applyLight();
+    }
     const glassMat = new THREE.MeshStandardMaterial({ color: 0x9cc7e8, roughness: 0.1, transparent: true, opacity: 0.35, depthWrite: false });
-    let walls = null, glass = null, frames = [], floor = null, span = 0;
+    let walls = [], glass = null, frames = [], lamps = null, floor = null, span = 0;
     let roomFloors = null;                 // 每個房間的地板（有材質）
     let ceilings = null;                   // 天花板，只在漫遊時顯示
     let furniture = null;                  // 家具
@@ -114,7 +147,13 @@
     }
 
     function clear() {
-      if (walls) { scene.remove(walls); walls.dispose(); walls = null; }
+      walls.forEach(m => { scene.remove(m); m.dispose(); });
+      walls = [];
+      if (lamps) {
+        scene.remove(lamps);
+        lamps.children.forEach(m => m.geometry && m.geometry.dispose());
+        lamps = null;
+      }
       if (glass) { scene.remove(glass); glass.dispose(); glass = null; }
       frames.forEach(f => { scene.remove(f); f.dispose(); });
       frames = [];
@@ -147,11 +186,20 @@
       center = [cx, cy];
       // 每面牆依門窗切成數個方塊；窗戶另外放一片玻璃
       const boxes = [], panes = [], parts = { frame: [], leaf: [], handle: [] };
+      const houseWall = plan.materials && plan.materials.wall;
+      const roomAt = p => FPRooms.hitRoom(plan, p);
+      // 沒有房間的那一面（屋外）和沒選牆色的房間都用全屋的牆面顏色
+      const paintOf = r => (r && r.paint) || '';
       for (const w of plan.walls) {
         const L = FPPlan.wallLength(w);
         if (!L) continue;
         const ops = FPPlan.openingsOf(plan, w.id);
-        for (const pc of FPPlan.wallPieces(w, ops)) boxes.push({ w, L, s0: pc.s0, s1: pc.s1, y0: pc.y0, y1: pc.y1, t: w.thickness });
+        // 牆面依兩側的房間切段，每段的左右牆面用各自房間的牆色
+        for (const pc of FPPlan.wallPieces(w, ops)) {
+          for (const run of FPPlan.faceRooms(w, pc.s0, pc.s1, roomAt)) {
+            boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: paintOf(run.left) + '|' + paintOf(run.right) });
+          }
+        }
         for (const sp of FPPlan.openingSpans(w, ops)) {
           for (const pt of FPPlan.openingParts(w, sp)) parts[pt.kind].push({ w, L, ...pt });
           if (sp.o.type !== 'window') continue;
@@ -200,12 +248,22 @@
         frames.push(mesh);
         scene.add(mesh);
       }
-      walls = instanced(boxes, wallMat);
-      walls.castShadow = true;
-      walls.receiveShadow = true;
+      // 同樣左右牆色的牆段放在一起。方塊的 +z 面是 a→b 的右側、−z 面是左側
+      const groups = new Map();
+      for (const b of boxes) {
+        if (!groups.has(b.key)) groups.set(b.key, []);
+        groups.get(b.key).push(b);
+      }
+      for (const [key, list] of groups) {
+        const [left, right] = key.split('|').map(id => id ? paintMat(id) : wallMat);
+        const mesh = instanced(list, [wallMat, wallMat, wallMat, wallMat, right, left]);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        walls.push(mesh);
+      }
       glass = instanced(panes, glassMat);
       scene.add(glass);
-      scene.add(walls);
+      walls.forEach(m => scene.add(m));
 
       const fw = bb.maxX - bb.minX, fh = bb.maxY - bb.minY;
       const floorMat = new THREE.MeshStandardMaterial({ color: image ? 0xffffff : 0xdfe4e9, roughness: 1 });
@@ -269,7 +327,26 @@
         }
       }
       scene.add(furniture);
-      wallMat.color.set(FPMaterials.wall(plan.materials && plan.materials.wall).color);
+      wallMat.color.set(FPMaterials.wall(houseWall).color);
+
+      // 每個房間天花板中央一盞燈（傍晚、夜晚才開），燈罩只在漫遊時看得到
+      lamps = new THREE.Group();
+      const lit = (plan.rooms || []).slice().sort((a, b) => b.area - a.area).slice(0, MAX_LAMPS);
+      for (const r of lit) {
+        const xs = r.polygon.map(p => p[0]), ys = r.polygon.map(p => p[1]);
+        const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+        const at = r.label || [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+        const light = new THREE.PointLight(0xffd6a0, 0, Math.max(4, size * 1.3), 1.6);
+        light.position.set(at[0] - cx, top - 0.35, at[1] - cy);
+        light.userData.room = r.id;
+        lamps.add(light);
+        const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.05, 24), lampMat);
+        shade.position.set(at[0] - cx, top - 0.03, at[1] - cy);
+        shade.userData.shade = true;
+        lamps.add(shade);
+      }
+      scene.add(lamps);
+      applyLight();
       if (walk) walk.solids = FPWalk.solids(plan);
 
       const newSpan = Math.max(fw, fh);
@@ -290,7 +367,7 @@
         controls.enabled = false;
         camera.fov = 70;
         // 室內近看時陽光直射的牆面會過曝，把光線調柔和一點
-        ambient.intensity = 0.15; hemi.intensity = 0.55; sun.intensity = 0.4;
+        applyLight();
         // 從門窗看出去是天空色，不是網頁背景
         scene.background = sky;
         if (ceilings) ceilings.visible = true;
@@ -298,7 +375,7 @@
         walk = null;
         controls.enabled = true;
         camera.fov = 45;
-        ambient.intensity = 0; hemi.intensity = 0.75; sun.intensity = 0.75;
+        applyLight();
         scene.background = null;
         if (ceilings) ceilings.visible = false;
         resetCamera();
@@ -371,7 +448,7 @@
     }
 
     return {
-      setPlan, resetCamera, setWalk, snapshot,
+      setPlan, resetCamera, setWalk, setLight, snapshot,
       get walking() { return !!walk; },
       // 漫遊時的移動輸入：{forward, back, left, right, turnLeft, turnRight, fast}
       setInput(key, value) { if (walk) walk.input[key] = value; }
