@@ -36,6 +36,30 @@
     let ceilings = null;                   // 天花板，只在漫遊時顯示
     let furniture = null;                  // 家具
     const colorMats = new Map();           // 家具顏色 → 材質，重複使用
+    const modelGeoms = new Map();          // 家具模型名稱 → BufferGeometry，重複使用
+    let modelMat = null;                   // 家具模型共用的貼圖材質
+
+    // 家具模型（KayKit，CC0）：幾何已正規化成 1 × 1 × 1，擺放時依家具尺寸縮放
+    function modelGeometry(name) {
+      if (typeof FPModels === 'undefined' || !FPModels.has(name)) return null;
+      if (modelGeoms.has(name)) return modelGeoms.get(name);
+      const d = FPModels.decode(name), g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(d.position, 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(d.normal, 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(d.uv, 2));
+      g.setIndex(new THREE.BufferAttribute(d.index, 1));
+      modelGeoms.set(name, g);
+      return g;
+    }
+
+    function modelMaterial() {
+      if (modelMat) return modelMat;
+      const tex = new THREE.TextureLoader().load(FPModels.texture);
+      tex.flipY = false;                   // glTF 的 UV 原點在左上
+      tex.encoding = THREE.sRGBEncoding;
+      modelMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7 });
+      return modelMat;
+    }
     const ceilingMat = new THREE.MeshStandardMaterial({ color: 0xf7f7f5, roughness: 0.95, side: THREE.DoubleSide });
     const floorMats = new Map();           // 材質 id → MeshStandardMaterial，重複使用
     let center = [0, 0];                   // 平面圖座標的中心，對應 3D 的原點
@@ -161,9 +185,20 @@
       ceilings.visible = !!walk;
       scene.add(ceilings);
 
-      // 家具：每件由幾個方塊組成，共用同一個方塊幾何
+      // 家具：有模型的用模型，否則由幾個方塊組成（共用同一個方塊幾何）
       furniture = new THREE.Group();
       for (const f of plan.furniture || []) {
+        const def = FPFurniture.item(f.model), geo = def && modelGeometry(def.mesh);
+        if (geo) {
+          const mesh = new THREE.Mesh(geo, modelMaterial());
+          mesh.position.set(f.pos[0] - cx, 0, f.pos[1] - cy);
+          mesh.rotation.y = -(f.rotation || 0) * Math.PI / 180;
+          mesh.scale.set(f.w, f.h || def.h, f.d);
+          mesh.castShadow = def.h > 0.1;
+          mesh.receiveShadow = true;
+          furniture.add(mesh);
+          continue;
+        }
         for (const b of FPFurniture.parts(f)) {
           if (!colorMats.has(b.color)) colorMats.set(b.color, new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.75 }));
           const mesh = new THREE.Mesh(box, colorMats.get(b.color));

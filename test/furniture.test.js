@@ -125,3 +125,34 @@ test('牆面顏色：找不到的 id 用白色', () => {
   assert.equal(M.wall('nope').id, M.DEFAULT_WALL);
   assert.equal(M.wall(undefined).id, 'paint-white');
 });
+
+test('家具模型：家具庫用到的模型都在，幾何正規化成 1 × 1 × 1、正面朝 +z', () => {
+  const Mo = require('../js/models.js');
+  assert.match(Mo.source, /CC0/);
+  assert.match(Mo.texture, /^data:image\/png;base64,/);
+  for (const it of F.CATALOG.filter(c => c.mesh)) {
+    assert.ok(Mo.has(it.mesh), it.id + ' 缺模型 ' + it.mesh);
+    const g = Mo.decode(it.mesh);
+    assert.equal(g.position.length, g.normal.length, it.id);
+    assert.equal(g.position.length / 3, g.uv.length / 2, it.id);
+    assert.ok(g.index.every(i => i < g.position.length / 3), it.id + ' 索引超出範圍');
+    const lo = [1, 1, 1], hi = [-1, -1, -1];
+    g.position.forEach((v, i) => { lo[i % 3] = Math.min(lo[i % 3], v); hi[i % 3] = Math.max(hi[i % 3], v); });
+    assert.ok(near(lo[0], -0.5, 1e-3) && near(hi[0], 0.5, 1e-3) && near(lo[1], 0, 1e-3) && near(hi[1], 1, 1e-3), it.id);
+  }
+  assert.equal(Mo.decode('nope'), null);
+  // 沙發、床的椅背、床頭在背面（-z）
+  for (const name of ['couch_pillows', 'bed_double_A', 'chair_A_wood']) {
+    const p = Mo.decode(name).position;
+    let s = 0, c = 0;
+    for (let i = 0; i < p.length; i += 3) if (p[i + 1] > 0.8) { s += p[i + 2]; c++; }
+    assert.ok(s / c < -0.15, name + ' 高處的平均 z ' + (s / c));
+  }
+});
+
+test('地毯不擋路、落地燈會擋', () => {
+  const plan = room();
+  E.addFurniture(plan, 'rug', [2, 1.5], 0);
+  E.addFurniture(plan, 'lamp-floor', [1, 1], 0);
+  assert.equal(W.solids(plan).length, 5);
+});
