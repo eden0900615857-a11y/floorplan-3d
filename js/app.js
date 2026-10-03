@@ -3,7 +3,7 @@
 (function () {
   const $ = id => document.getElementById(id);
   const MAX_SIDE = 900;                          // 辨識用的工作解析度（長邊像素）
-  const STORAGE_KEY = 'floorplan-3d:last-plan';
+  const STORAGE_KEY = 'floorplan-3d:last-plan';   // 舊版只存一份平面圖：第一次開啟時搬進專案
   const EDITED_KEY = 'floorplan-3d:edited';
   const AI_KEY = 'floorplan-3d:ai';               // 使用者有沒有打開 AI 辨識
   const LIGHT_KEY = 'floorplan-3d:light';         // 3D 的光線：白天、傍晚、夜晚
@@ -98,13 +98,44 @@
     if (!v) $('redetectBox').hidden = true;
   }
 
+  // 專案：每張上傳的平面圖一個專案。上傳新檔案時先記下名字，下一次存檔時建立新專案
+  let projects = null, pendingProject = null;
+  function newProject(name, id) { pendingProject = { name, id }; }
   function save() {
     if (plan) FPSchemes.sync(plan);
-    if (viewing) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(plan));
-      localStorage.setItem(EDITED_KEY, edited ? '1' : '');
-    } catch (e) { /* 空間不足或瀏覽器不允許時略過 */ }
+    if (viewing || !projects || !plan) return;
+    let done;
+    if (pendingProject || !projects.current) {
+      const pp = pendingProject || { name: '我的房子' };
+      pendingProject = null;
+      done = projects.create(pp.name, plan, edited, pp.id).done;
+      syncProjects();
+    } else {
+      done = projects.save(plan, edited);
+    }
+    done.catch(() => note('存檔失敗：瀏覽器的儲存空間可能不夠了，請刪除不用的專案，或先用「下載 JSON」備份。', true));
+  }
+
+  function syncProjects() {
+    if (!projects) return;
+    const sel = $('project'), list = projects.list();
+    sel.textContent = '';
+    for (const e of list) {
+      const o = document.createElement('option');
+      o.value = e.id; o.textContent = e.name;
+      sel.appendChild(o);
+    }
+    sel.value = projects.current || '';
+    const cur = projects.get(projects.current);
+    if (document.activeElement !== $('projectName')) $('projectName').value = cur ? cur.name : '';
+    $('projectDel').disabled = !cur;
+  }
+
+  async function openProject(id) {
+    const p = await projects.open(id);
+    if (!p) { note('找不到這個專案。', true); syncProjects(); return false; }
+    syncProjects();
+    return openPlan(p.plan, '已開啟「' + p.name + '」。', p.edited);
   }
 
   function planWidth(p) {
@@ -409,13 +440,29 @@
     return true;
   }
 
-  function restore() {
-    let p = null, wasEdited = false;
-    try {
-      p = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      wasEdited = localStorage.getItem(EDITED_KEY) === '1';
-    } catch (e) { return false; }
-    return !!p && openPlan(p, '已載入上次的結果。', wasEdited);
+  // 開啟上次的專案；舊版存在 localStorage 的平面圖搬成第一個專案
+  async function initProjects() {
+    if (!projects) {
+      let backend;
+      try { backend = await FPProjects.idbBackend('floorplan-3d'); } catch (e) { backend = FPProjects.memoryBackend(); }
+      projects = FPProjects.createStore(backend);
+      try { await projects.init(); } catch (e) { projects = FPProjects.createStore(FPProjects.memoryBackend()); await projects.init(); }
+      let old = null, oldEdited = false;
+      try { old = JSON.parse(localStorage.getItem(STORAGE_KEY)); oldEdited = localStorage.getItem(EDITED_KEY) === '1'; } catch (e) { /* 略過 */ }
+      if (old && !projects.list().length && !FPPlan.validate(old).length) {
+        // 確定寫進專案之後才刪掉舊的那份
+        const ok = await projects.create('我的房子', old, oldEdited).done.then(() => true, () => false);
+        if (ok && projects.persistent) {
+          try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(EDITED_KEY); } catch (e) { /* 略過 */ }
+        }
+      }
+      syncProjects();
+    }
+  }
+  async function restore() {
+    await initProjects();
+    const id = projects.current || (projects.list()[0] || {}).id;
+    return !!id && openProject(id);
   }
 
   function downloadPlan() {
@@ -436,13 +483,14 @@
       let p;
       try { p = JSON.parse(text); } catch (e) { note('無法開啟：檔案不是有效的 JSON。', true); return; }
       // 檔案裡的牆可能已經手動修改過，當作已修改，避免被重新辨識蓋掉
-      openPlan(p, '已開啟 ' + file.name + '。', true);
+      newProject(file.name.replace(/\.json$/i, ''));
+      if (!openPlan(p, '已開啟 ' + file.name + '。', true)) pendingProject = null;
     });
   }
 
   function openImageFile(file) {
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { loadSource(img); src.autoScale = true; autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); note(''); detect(); view3d.resetCamera(); };
+    img.onload = () => { loadSource(img); src.autoScale = true; autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); note(''); newProject(file.name.replace(/\.[^.]+$/, '')); detect(); view3d.resetCamera(); };
     img.onerror = () => { URL.revokeObjectURL(url); note('無法讀取這張圖片，請改用 JPG 或 PNG。', true); };
     img.src = url;
   }
@@ -463,7 +511,7 @@
   function openPdfFile(file) {
     note('正在讀取 PDF…');
     FPPdfPick.open(file).then(doc => {
-      pdf = { doc, page: null };
+      pdf = { doc, page: null, name: file.name.replace(/\.pdf$/i, '') };
       const sel = $('pdfPage');
       sel.textContent = '';
       for (let i = 1; i <= doc.numPages; i++) {
@@ -494,6 +542,7 @@
       src.vector = { lines: res.lines, ppm: res.pxPerPt * 72000 / (25.4 * scale) };
       src.fromPdf = true;
       syncSourceKind();
+      newProject(pdf.name);
       detect();
       view3d.resetCamera();
       showTab('3d');
@@ -519,6 +568,8 @@
     autoColorMode();
     syncSourceKind();
     note('');
+    // 範例固定放在同一個「範例」專案，重新載入是覆蓋
+    newProject('範例', 'sample');
     detect();
     view3d.resetCamera();
   }
@@ -786,7 +837,7 @@
   async function openShared(data) {
     let p;
     try { p = await FPShare.decode(data); }
-    catch (e) { setViewing(false); if (!plan && !restore()) loadSample(); note(e.message, true); return; }
+    catch (e) { setViewing(false); if (!plan && !(await restore())) loadSample(); note(e.message, true); return; }
     setViewing(true);
     openPlan(p, '', true);
     const rooms = (p.rooms || []).length, schemes = (p.schemes || []).length;
@@ -794,24 +845,39 @@
   }
 
   // 把分享的平面圖存到這台電腦，改成可以編輯
-  $('viewerEdit').addEventListener('click', () => {
-    let had = false;
-    try { had = !!localStorage.getItem(STORAGE_KEY); } catch (e) { /* 略過 */ }
-    if (had && !confirm('這台電腦上原本的平面圖會被取代（建議先用「下載 JSON」備份）。要繼續嗎？')) return;
+  $('viewerEdit').addEventListener('click', async () => {
+    await initProjects();
     setViewing(false);
     history.replaceState(null, '', location.pathname + location.search);
+    newProject('分享的平面圖');
     save();
     refresh();
-    note('已存到這台電腦，現在可以編輯了。');
+    note('已存成新專案「' + (projects.get(projects.current) || {}).name + '」，現在可以編輯了。');
+  });
+
+  // 專案選單：切換、改名、刪除
+  $('project').addEventListener('change', () => { save(); openProject($('project').value); });
+  $('projectName').addEventListener('change', () => {
+    if (!projects || !projects.current) return;
+    projects.rename(projects.current, $('projectName').value);
+    syncProjects();
+  });
+  $('projectDel').addEventListener('click', () => {
+    const cur = projects && projects.get(projects.current);
+    if (!cur || !confirm('要刪除專案「' + cur.name + '」嗎？刪除後無法復原。')) return;
+    const next = projects.remove(cur.id);
+    syncProjects();
+    if (next) openProject(next);
+    else loadSample();
   });
   window.addEventListener('hashchange', () => { const d = FPShare.fromHash(location.hash); if (d) openShared(d); });
 
   syncOutputs();
   $('toolHint').textContent = TOOL_HINTS.select;
-  const start = () => {
+  const start = async () => {
     const shared = FPShare.fromHash(location.hash);
     if (shared) openShared(shared);
-    else if (!restore()) loadSample();
+    else if (!(await restore())) loadSample();
   };
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
 })();
