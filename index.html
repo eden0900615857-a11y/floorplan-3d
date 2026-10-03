@@ -31,6 +31,21 @@
           <label class="thick" for="projectName">名稱 <input id="projectName" type="text" maxlength="30"></label>
           <button id="projectDel" type="button">刪除</button>
         </div>
+        <div class="ctl">
+          <label for="floor">樓層</label>
+          <select id="floor"></select>
+        </div>
+        <div class="btnrow">
+          <button id="floorAdd" type="button">新增樓層</button>
+          <label class="thick" for="floorName">名稱 <input id="floorName" type="text" maxlength="20"></label>
+          <button id="floorDel" type="button">刪除這層</button>
+        </div>
+        <div class="btnrow" id="floorAlign" hidden>
+          <span class="hint">對齊位移</span>
+          <label class="thick" for="floorDX">X <input id="floorDX" type="number" step="0.05"> m</label>
+          <label class="thick" for="floorDY">Y <input id="floorDY" type="number" step="0.05"> m</label>
+        </div>
+        <p class="hint">樓層：按「新增樓層」再上傳那一層的圖（或在同一份 PDF 上框選另一層），會疊在最上面，3D 下面會顯示其他樓層。新的一層會先對齊下面那一層的外牆左上角，對不準可以改「對齊位移」。</p>
         <p class="hint">每上傳一張平面圖就是一個新專案，自動存在這台電腦的瀏覽器裡，可以在這裡切換。範例固定是「範例」專案。</p>
       </div>
 
@@ -165,6 +180,7 @@
       <div class="view" id="view" role="tabpanel" aria-labelledby="tab3d">
         <span class="viewtag" id="viewTag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
         <div class="viewbar">
+          <select id="floorQuick" aria-label="切換樓層"></select>
           <select id="schemeQuick" aria-label="切換裝修方案"></select>
           <select id="lightMode" aria-label="光線">
             <option value="day">白天</option>
@@ -265,6 +281,7 @@
 <script src="js/rooms.js"></script>
 <script src="js/schemes.js"></script>
 <script src="js/projects.js"></script>
+<script src="js/building.js"></script>
 <script src="js/quantities.js"></script>
 <script src="js/edit.js"></script>
 <script src="js/editor.js"></script>

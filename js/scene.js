@@ -372,6 +372,77 @@
       if (Math.abs(newSpan - span) > 0.01) { span = newSpan; resetCamera(); }
     }
 
+    // 多樓層：目前樓層下面的樓層只畫牆、窗玻璃、地板和樓板，當作從旁邊看整棟房子的背景（不擋漫遊）。
+    // list：[{plan, dx, dy, y}]，dx、dy 是那一層平面圖座標換到目前樓層座標的位移，y 是高度（往下為負）
+    let context = null;
+    const slabMat = new THREE.MeshStandardMaterial({ color: 0xd9dcdf, roughness: 0.9 });
+    function boxesMesh(list, mat) {
+      const mesh = new THREE.InstancedMesh(box, mat, Math.max(1, list.length));
+      mesh.count = list.length;
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+      list.forEach((b, i) => {
+        const ux = (b.w.b[0] - b.w.a[0]) / b.L, uy = (b.w.b[1] - b.w.a[1]) / b.L, mid = (b.s0 + b.s1) / 2;
+        p.set(b.w.a[0] + ux * mid, b.y0, b.w.a[1] + uy * mid);
+        q.setFromAxisAngle(up, -Math.atan2(uy, ux));
+        sc.set(b.s1 - b.s0, b.y1 - b.y0, b.t);
+        m.compose(p, q, sc);
+        mesh.setMatrixAt(i, m);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      return mesh;
+    }
+    function setContext(list) {
+      if (context) {
+        scene.remove(context);
+        context.traverse(o => { if (o.isInstancedMesh) o.dispose(); else if (o.isMesh && o.geometry !== box) o.geometry.dispose(); });
+        context = null;
+      }
+      // 不是最下面那一層時，不畫貼原圖的大地板，才看得到下面的樓層
+      if (floor) floor.visible = !(list && list.length);
+      if (!list || !list.length) return;
+      context = new THREE.Group();
+      for (const f of list) {
+        const g = new THREE.Group();
+        g.position.set(f.dx - center[0], f.y, f.dy - center[1]);
+        const boxes = [], panes = [];
+        for (const w of f.plan.walls) {
+          const L = FPPlan.wallLength(w);
+          if (!L) continue;
+          const ops = FPPlan.openingsOf(f.plan, w.id);
+          for (const pc of FPPlan.wallPieces(w, ops)) boxes.push({ w, L, s0: pc.s0, s1: pc.s1, y0: pc.y0, y1: pc.y1, t: w.thickness });
+          for (const sp of FPPlan.openingSpans(w, ops)) {
+            if (sp.o.type !== 'window') continue;
+            const H = FPPlan.wallHeight(w), y0 = Math.min(sp.o.sill || 0, H), y1 = Math.min(H, y0 + sp.o.height);
+            if (y1 > y0) panes.push({ w, L, s0: sp.s0, s1: sp.s1, y0, y1, t: 0.02 });
+          }
+        }
+        if (boxes.length) g.add(boxesMesh(boxes, wallMat));
+        if (panes.length) g.add(boxesMesh(panes, glassMat));
+        for (const r of f.plan.rooms || []) {
+          const shape = new THREE.Shape(r.polygon.map(q => new THREE.Vector2(q[0], -q[1])));
+          const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMaterial(r.floor));
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.position.y = 0.002;
+          mesh.receiveShadow = true;
+          g.add(mesh);
+        }
+        // 樓板：牆的外框往外 0.1 公尺，蓋在這一層的牆頂上（也就是上一層的地板下面）
+        const wb = FPBuilding.wallBox(f.plan);
+        if (wb) {
+          const top = FPBuilding.floorHeight(f.plan) - FPBuilding.SLAB;
+          const slab = new THREE.Mesh(box, slabMat);
+          slab.position.set((wb.minX + wb.maxX) / 2, top, (wb.minY + wb.maxY) / 2);
+          slab.scale.set(wb.maxX - wb.minX + 0.2, FPBuilding.SLAB, wb.maxY - wb.minY + 0.2);
+          slab.castShadow = slab.receiveShadow = true;
+          g.add(slab);
+        }
+        context.add(g);
+      }
+      scene.add(context);
+    }
+
     // 第一人稱：滑鼠或手指拖曳轉頭，input 由鍵盤或畫面上的按鈕設定
     function setWalk(on) {
       if (on && plan) {
@@ -462,7 +533,7 @@
     }
 
     return {
-      setPlan, resetCamera, setWalk, setLight, snapshot,
+      setPlan, setContext, resetCamera, setWalk, setLight, snapshot,
       get walking() { return !!walk; },
       // 漫遊時的移動輸入：{forward, back, left, right, turnLeft, turnRight, fast}
       setInput(key, value) { if (walk) walk.input[key] = value; }
