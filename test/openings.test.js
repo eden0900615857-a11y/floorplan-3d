@@ -78,3 +78,22 @@ test('換算成平面圖：門掛在合併後的牆上，位置與方向正確',
   assert.deepEqual(p.openings, [{ id: 'o1', type: 'door', wall: 'w1', offset: 8.5, width: 4, height: 2.1, hinge: 'a', swing: 'right' }]);
   assert.deepEqual(plan.validate(p), []);
 });
+
+test('弧線落在密集線條裡（家具、磁磚）不算門', () => {
+  const ink = blank();
+  // 缺口 150–230 下方整片都是格線，弧線自然也碰得到
+  for (let y = 106; y < 200; y += 4) hline(ink, 140, 240, y);
+  const segs = [seg('h', 100, 10, 20, 150), seg('h', 100, 10, 230, 380)];
+  assert.equal(detect(segs, ink, W, H, opts).openings.length, 0);
+});
+
+test('只有半段弧（例如碰到椅子的圓弧）要看到門片才算門', () => {
+  const half = () => { const m = blank(); arc(m, 150, 105, 80, 0, 55); return m; };
+  const segs = () => [seg('h', 100, 10, 20, 150), seg('h', 100, 10, 230, 380)];
+  assert.equal(detect(segs(), half(), W, H, opts).openings.length, 0);
+  const ink = half();
+  vline(ink, 150, 105, 185);   // 門片
+  const r = detect(segs(), ink, W, H, opts);
+  assert.equal(r.openings.length, 1);
+  assert.equal(r.openings[0].type, 'door');
+});
