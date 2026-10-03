@@ -189,8 +189,18 @@
         if (cur < FPPlan.wallLength(w)) solid.push([cur, FPPlan.wallLength(w)]);
         ctx.fillStyle = w.id === selected ? sel : accent;
         ctx.globalAlpha = w.id === selected ? 0.9 : 0.75;
+        // 矮牆、玻璃欄杆畫淡一點，中間加一條線
+        if (w.kind) ctx.globalAlpha *= 0.45;
         for (const [s0, s1] of solid) { spanPath(w, s0, s1, w.thickness); ctx.fill(); }
         ctx.globalAlpha = 1;
+        if (w.kind) {
+          const p0 = toScreen(w.a), p1 = toScreen(w.b);
+          ctx.strokeStyle = w.id === selected ? sel : accent;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash(w.kind === 'glass' ? [6, 4] : []);
+          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
+          ctx.setLineDash([]);
+        }
         for (const sp of spans) drawOpening(w, sp, sp.o.id === selOpening ? sel : ink);
       }
       for (const f of FPFurniture.layered(plan)) drawFurniture(f, f.id === selFurn ? sel : ink, 1);
@@ -557,6 +567,22 @@
       commit();
     }
 
+    function setWindowSize(sill, height) {
+      const o = selOpening && FPEdit.findOpening(plan, selOpening);
+      if (!o || o.type !== 'window' || (o.sill === sill && o.height === height)) return;
+      history.record(plan);
+      FPEdit.setWindowSize(plan, o.id, sill, height);
+      commit();
+    }
+
+    function setWallKind(kind) {
+      const w = selected && FPEdit.findWall(plan, selected);
+      if (!w || (w.kind || '') === (kind || '')) return;
+      history.record(plan);
+      FPEdit.setWallKind(plan, w.id, kind);
+      commit();
+    }
+
     function renameRoom(name) {
       const r = selRoom && findRoom(selRoom);
       name = (name || '').trim();
@@ -659,7 +685,7 @@
 
     return {
       setPlan, setTool, deleteSelected, rotateFurniture, setFurnitureSize, setFurnitureColor, setWallPaint, schemeOp,
-      setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, flipDoor, renameRoom, setRoomFloor, setRoomPaint, rescale, cancel,
+      setPlaceModel: m => { placeModel = m; draw(); }, undo, redo, setThickness, setOpeningWidth, setWindowSize, setWallKind, flipDoor, renameRoom, setRoomFloor, setRoomPaint, rescale, cancel,
       fit: () => { fit(); draw(); },
       redraw: draw,
       get tool() { return tool; }

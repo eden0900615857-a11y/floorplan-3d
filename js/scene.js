@@ -185,7 +185,7 @@
       const cx = (bb.minX + bb.maxX) / 2, cy = (bb.minY + bb.maxY) / 2;
       center = [cx, cy];
       // 每面牆依門窗切成數個方塊；窗戶另外放一片玻璃
-      const boxes = [], panes = [], parts = { frame: [], leaf: [], handle: [] };
+      const boxes = [], panes = [], rails = [], parts = { frame: [], leaf: [], handle: [] };
       const houseWall = plan.materials && plan.materials.wall;
       const roomAt = p => FPRooms.hitRoom(plan, p);
       // 沒有房間的那一面（屋外）和沒選牆色的房間都用全屋的牆面顏色
@@ -196,6 +196,14 @@
         const ops = FPPlan.openingsOf(plan, w.id);
         // 牆面依兩側的房間切段，每段的左右牆面用各自房間的牆色
         for (const pc of FPPlan.wallPieces(w, ops)) {
+          // 玻璃欄杆：牆座照一般的牆上色，玻璃和金屬扶手另外畫
+          if (w.kind === 'glass' && pc.y0 === 0) {
+            for (const r of FPPlan.railingParts(w, pc.s0, pc.s1)) {
+              if (r.kind === 'curb') boxes.push({ w, L, ...r, key: '|' });
+              else (r.kind === 'glass' ? panes : rails).push({ w, L, ...r });
+            }
+            continue;
+          }
           for (const run of FPPlan.faceRooms(w, pc.s0, pc.s1, roomAt)) {
             boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: paintOf(run.left) + '|' + paintOf(run.right) });
           }
@@ -203,7 +211,7 @@
         for (const sp of FPPlan.openingSpans(w, ops)) {
           for (const pt of FPPlan.openingParts(w, sp)) parts[pt.kind].push({ w, L, ...pt });
           if (sp.o.type !== 'window') continue;
-          const y0 = Math.min(sp.o.sill || 0, w.height), y1 = Math.min(w.height, y0 + sp.o.height);
+          const H = FPPlan.wallHeight(w), y0 = Math.min(sp.o.sill || 0, H), y1 = Math.min(H, y0 + sp.o.height);
           if (y1 > y0) panes.push({ w, L, s0: sp.s0, s1: sp.s1, y0, y1, t: Math.min(0.02, w.thickness * 0.3) });
         }
       }
@@ -262,6 +270,12 @@
         walls.push(mesh);
       }
       glass = instanced(panes, glassMat);
+      if (rails.length) {
+        const mesh = instanced(rails, partMats.handle);
+        mesh.castShadow = true;
+        frames.push(mesh);
+        scene.add(mesh);
+      }
       scene.add(glass);
       walls.forEach(m => scene.add(m));
 

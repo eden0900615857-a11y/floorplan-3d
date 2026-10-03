@@ -198,7 +198,13 @@
             <button type="button" id="fit">顯示全圖</button>
           </div>
           <label class="thick" for="thick" id="thickCtl">牆厚 <input id="thick" type="number" min="0.02" max="1" step="0.01" disabled> m</label>
+          <label class="thick" for="wallKind" id="wallKindCtl" hidden>種類 <select id="wallKind"></select></label>
           <label class="thick" for="openW" id="openWCtl" hidden>開口寬 <input id="openW" type="number" min="0.3" max="5" step="0.05"> m</label>
+          <span class="thick" id="winCtl" hidden>
+            <label class="thick" for="winKind">窗 <select id="winKind"></select></label>
+            <label class="thick" for="winSill">窗台 <input id="winSill" type="number" min="0" max="4" step="0.05"> m</label>
+            <label class="thick" for="winH">窗高 <input id="winH" type="number" min="0.1" max="4" step="0.05"> m</label>
+          </span>
           <button type="button" id="flip" hidden>換開門方向</button>
           <label class="thick" for="furnModel" id="furnPick" hidden>家具 <select id="furnModel"></select></label>
           <span class="thick" id="furnCtl" hidden>

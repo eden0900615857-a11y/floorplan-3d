@@ -17,6 +17,22 @@
     door: { width: 0.9, height: 2.1, sill: 0 },
     window: { width: 1.2, height: 1.2, sill: 0.9 }
   };
+  // 窗的種類：窗台高與窗高（公尺）
+  const WINDOW_KINDS = [
+    { id: 'normal', name: '一般窗', sill: 0.9, height: 1.2 },
+    { id: 'high', name: '高窗', sill: 1.6, height: 0.6 },
+    { id: 'full', name: '落地窗', sill: 0, height: 2.1 }
+  ];
+  // 牆的種類（wall.kind）：省略是一般牆；low 是矮牆、glass 是玻璃欄杆，兩種都是陽台的欄杆，高 RAIL_H
+  const WALL_KINDS = [
+    { id: '', name: '牆' },
+    { id: 'low', name: '矮牆' },
+    { id: 'glass', name: '玻璃欄杆' }
+  ];
+  const RAIL_H = 1.1;
+  function wallHeight(wall) {
+    return wall.kind === 'low' || wall.kind === 'glass' ? Math.min(wall.height, RAIL_H) : wall.height;
+  }
 
   // 像素座標裡「垂直於牆的正方向」在 a→b 的左側還是右側（y 向下）
   function swingOf(dir, side) {
@@ -129,7 +145,7 @@
   // 3D 用：把一面牆切成實心的方塊。門窗處只留上方（和窗台下方）的牆。
   // 回傳 [{s0, s1, y0, y1}]：沿牆距離 s0–s1、高度 y0–y1（公尺）
   function wallPieces(wall, openings) {
-    const L = wallLength(wall), H = wall.height, pieces = [];
+    const L = wallLength(wall), H = wallHeight(wall), pieces = [];
     let cur = 0;
     for (const sp of openingSpans(wall, openings)) {
       if (sp.s0 > cur) pieces.push({ s0: cur, s1: sp.s0, y0: 0, y1: H });
@@ -172,7 +188,7 @@
   // len × t 是方塊的長和厚，angle 是方塊長邊和牆方向的夾角（弧度，往左側轉為正）；kind 是 frame、leaf、handle。
   const FRAME = 0.05, LEAF_T = 0.04, DOOR_OPEN = 70 * Math.PI / 180;
   function openingParts(wall, sp) {
-    const o = sp.o, t = wall.thickness, H = wall.height, parts = [];
+    const o = sp.o, t = wall.thickness, H = wallHeight(wall), parts = [];
     const add = (kind, s, q, y0, y1, len, th, angle) => parts.push({ kind, s, q, y0, y1, len, t: th, angle: angle || 0 });
     const w = sp.s1 - sp.s0, mid = (sp.s0 + sp.s1) / 2;
     if (o.type === 'door') {
@@ -203,6 +219,22 @@
     if (w > 0.8) add('frame', mid, 0, y0, y1, FRAME * 0.8, depth);
     if (y0 > 0.05) add('frame', mid, 0, y0 - 0.03, y0, w + 0.1, t + 0.08);
     return parts;
+  }
+
+  // 玻璃欄杆（wall.kind = 'glass'）的一段：底下 10 公分的牆座、玻璃、頂上的扶手和每 1.2 公尺以內一根的立柱。
+  // 回傳 [{kind: 'curb' | 'glass' | 'metal', s0, s1, y0, y1, t}]
+  function railingParts(wall, s0, s1) {
+    const H = wallHeight(wall), CURB = 0.1, RAIL = 0.04, out = [];
+    if (s1 - s0 < 0.01) return out;
+    out.push({ kind: 'curb', s0, s1, y0: 0, y1: CURB, t: wall.thickness });
+    out.push({ kind: 'glass', s0, s1, y0: CURB, y1: H - RAIL, t: 0.015 });
+    out.push({ kind: 'metal', s0, s1, y0: H - RAIL, y1: H, t: 0.05 });
+    const n = Math.max(1, Math.ceil((s1 - s0) / 1.2));
+    for (let i = 0; i <= n; i++) {
+      const s = Math.min(s1 - 0.02, Math.max(s0 + 0.02, s0 + (s1 - s0) * i / n));
+      out.push({ kind: 'metal', s0: s - 0.02, s1: s + 0.02, y0: CURB, y1: H - RAIL, t: 0.04 });
+    }
+    return out;
   }
 
   // 3D 牆色用：一段牆（沿牆 s0–s1）的左右兩個牆面各屬於哪個房間。
@@ -236,5 +268,5 @@
     return runs;
   }
 
-  return { VERSION, OPENING_DEFAULTS, fromSegments, makeOpening, validate, bounds, wallLength, openingsOf, openingSpans, wallPieces, openingParts, faceRooms };
+  return { VERSION, OPENING_DEFAULTS, WINDOW_KINDS, WALL_KINDS, RAIL_H, wallHeight, fromSegments, makeOpening, validate, bounds, wallLength, openingsOf, openingSpans, wallPieces, openingParts, railingParts, faceRooms };
 });
