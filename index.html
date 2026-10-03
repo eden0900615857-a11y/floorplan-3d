@@ -22,6 +22,19 @@
   <div class="layout">
     <aside>
       <div class="group edit-only">
+        <span class="label">專案</span>
+        <div class="ctl">
+          <label for="project">目前的房子</label>
+          <select id="project"></select>
+        </div>
+        <div class="btnrow">
+          <label class="thick" for="projectName">名稱 <input id="projectName" type="text" maxlength="30"></label>
+          <button id="projectDel" type="button">刪除</button>
+        </div>
+        <p class="hint">每上傳一張平面圖就是一個新專案，自動存在這台電腦的瀏覽器裡，可以在這裡切換。範例固定是「範例」專案。</p>
+      </div>
+
+      <div class="group edit-only">
         <span class="label">平面圖</span>
         <div class="btnrow">
           <label class="filebtn">上傳圖片或 PDF<input id="file" type="file" accept="image/*,.pdf,application/pdf"></label>
@@ -245,6 +258,7 @@
 <script src="js/scene.js"></script>
 <script src="js/rooms.js"></script>
 <script src="js/schemes.js"></script>
+<script src="js/projects.js"></script>
 <script src="js/quantities.js"></script>
 <script src="js/edit.js"></script>
 <script src="js/editor.js"></script>
