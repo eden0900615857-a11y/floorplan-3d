@@ -107,3 +107,25 @@ test('faceRooms：外牆跨兩個房間時切成兩段，左右牆面各自對�
   // 只有一個房間：一段
   assert.equal(plan.faceRooms(wall, 1, 3, roomAt).length, 1);
 });
+
+test('牆的種類：矮牆、玻璃欄杆高 1.1 公尺，玻璃欄杆有牆座、玻璃、扶手與立柱', () => {
+  const wall = { id: 'w1', a: [0, 0], b: [3, 0], thickness: 0.12, height: 2.8 };
+  assert.equal(plan.wallHeight(wall), 2.8);
+  assert.equal(plan.wallHeight({ ...wall, kind: 'low' }), plan.RAIL_H);
+  const pieces = plan.wallPieces({ ...wall, kind: 'glass' }, []);
+  assert.deepEqual(pieces.map(p => [p.y0, p.y1]), [[0, 1.1]]);
+  const parts = plan.railingParts({ ...wall, kind: 'glass' }, 0, 3);
+  assert.deepEqual(parts.slice(0, 3).map(p => p.kind), ['curb', 'glass', 'metal']);
+  assert.equal(parts.length - 3, 4, '3 公尺分 3 格，4 根立柱');
+  assert.ok(Math.abs(Math.max(...parts.map(p => p.y1)) - 1.1) < 1e-9);
+});
+
+test('落地窗：窗台 0 時窗下沒有牆，也沒有窗台板', () => {
+  const wall = { id: 'w1', a: [0, 0], b: [4, 0], thickness: 0.15, height: 2.8 };
+  const win = { id: 'o1', wall: 'w1', type: 'window', offset: 2, width: 2, height: 2.1, sill: 0 };
+  const pieces = plan.wallPieces(wall, [win]);
+  assert.ok(!pieces.some(p => p.s0 >= 1 && p.s1 <= 3 && p.y0 === 0), '窗下面沒有牆');
+  const parts = plan.openingParts(wall, plan.openingSpans(wall, [win])[0]);
+  assert.ok(parts.every(p => p.y0 >= 0), '沒有低於地面的窗台板');
+  assert.equal(parts.length, 5, '四邊窗框加中間直框');
+});

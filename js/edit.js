@@ -87,6 +87,24 @@
     return o;
   }
 
+  // 窗台高與窗高：窗台在 0 到牆高減 10 公分之間，窗頂不超過牆高
+  function setWindowSize(plan, id, sill, height) {
+    const o = findOpening(plan, id), wall = o && findWall(plan, o.wall);
+    if (!wall || o.type !== 'window' || !(sill >= 0) || !(height > 0)) return null;
+    o.sill = mm(Math.min(sill, Math.max(0, wall.height - 0.1)));
+    o.height = mm(Math.max(0.1, Math.min(height, wall.height - o.sill)));
+    return o;
+  }
+
+  // 牆的種類：'' 一般牆、'low' 矮牆、'glass' 玻璃欄杆
+  function setWallKind(plan, id, kind) {
+    const w = findWall(plan, id);
+    if (!w) return null;
+    if (kind === 'low' || kind === 'glass') w.kind = kind;
+    else delete w.kind;
+    return w;
+  }
+
   // 門的開向依序切換：左開 → 右開 → 門軸換邊左開 → 門軸換邊右開
   function flipDoor(plan, id) {
     const o = findOpening(plan, id);
@@ -313,7 +331,7 @@
   return {
     findWall, nextId, addWall, deleteWall, distToSegment, hitTest,
     findFurniture, addFurniture, deleteFurniture, moveFurniture, rotateFurniture, setFurnitureSize, setFurnitureColor,
-    findOpening, addOpening, deleteOpening, moveOpening, setOpeningWidth, flipDoor, projectOnWall, hitOpening,
+    findOpening, addOpening, deleteOpening, moveOpening, setOpeningWidth, setWindowSize, setWallKind, flipDoor, projectOnWall, hitOpening,
     snapToEndpoint, snapOrtho, moveEndpoint, moveWall, rescale, scaleFactor, History
   };
 });

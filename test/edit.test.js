@@ -157,3 +157,18 @@ test('比例尺縮放也會縮放門窗', () => {
   E.rescale(p, 1.5);
   assert.deepEqual([d.offset, d.width, d.height], [3, 1.2, 2.1]);
 });
+
+test('setWindowSize、setWallKind：窗台與窗高不超過牆高；牆可以改成欄杆再改回來', () => {
+  const E2 = require('../js/edit.js'), P2 = require('../js/plan.js');
+  const plan = { version: 1, unit: 'm', walls: [{ id: 'w1', a: [0, 0], b: [4, 0], thickness: 0.15, height: 2.8 }], openings: [P2.makeOpening('o1', 'window', 'w1', 2, 1.2)], rooms: [] };
+  E2.setWindowSize(plan, 'o1', 0, 2.1);
+  assert.deepStrictEqual([plan.openings[0].sill, plan.openings[0].height], [0, 2.1]);
+  E2.setWindowSize(plan, 'o1', 2, 2);
+  assert.deepStrictEqual([plan.openings[0].sill, plan.openings[0].height], [2, 0.8]);
+  E2.setWindowSize(plan, 'o1', 5, 1);
+  assert.equal(plan.openings[0].sill, 2.7);
+  E2.setWallKind(plan, 'w1', 'glass');
+  assert.equal(plan.walls[0].kind, 'glass');
+  E2.setWallKind(plan, 'w1', '');
+  assert.equal('kind' in plan.walls[0], false);
+});

@@ -39,6 +39,15 @@
       if (room) { $('roomName').value = room.name; $('roomFloor').value = FPMaterials.floor(room.floor).id; $('roomPaint').value = room.paint || ''; }
       $('thick').disabled = !wall;
       $('thick').value = wall ? wall.thickness : '';
+      $('wallKindCtl').hidden = !wall;
+      if (wall) $('wallKind').value = wall.kind || '';
+      const win = op && op.type === 'window' ? op : null;
+      $('winCtl').hidden = !win;
+      if (win) {
+        $('winSill').value = win.sill; $('winH').value = win.height;
+        const k = FPPlan.WINDOW_KINDS.find(k => Math.abs(k.sill - win.sill) < 0.005 && Math.abs(k.height - win.height) < 0.005);
+        $('winKind').value = k ? k.id : '';
+      }
       $('openWCtl').hidden = !op;
       $('openW').value = op ? op.width : '';
       $('flip').hidden = !(op && op.type === 'door');
@@ -63,7 +72,7 @@
   });
 
   const TOOL_HINTS = {
-    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳；家具可以拖曳，按 R 旋轉，也可以換顏色；點選房間可以改名。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
+    select: '點選牆後可以拖曳移動，拖曳兩端的方塊可以調整長度；門窗可以沿著牆拖曳；家具可以拖曳，按 R 旋轉，也可以換顏色；點選牆可以改成陽台的矮牆或玻璃欄杆；點選窗可以選一般窗、高窗、落地窗或自訂窗台高度；點選房間可以改名。Delete 刪除，Ctrl+Z 復原。拖曳空白處平移，滾輪縮放。',
     wall: '在圖上拖曳畫出新牆。接近水平或垂直時會自動拉直（按住 Alt 可畫斜牆），靠近其他牆的端點會自動接上。',
     door: '點在牆上加一扇門（寬 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度，或按「換開門方向」。',
     window: '點在牆上加一扇窗（寬 1.2 公尺，窗台高 0.9 公尺）。加好後可以拖曳沿牆移動、修改寬度。',
@@ -641,6 +650,25 @@
   $('thick').addEventListener('change', () => editor.setThickness(+$('thick').value));
   $('openW').addEventListener('change', () => editor.setOpeningWidth(+$('openW').value));
   $('flip').addEventListener('click', () => editor.flipDoor());
+  // 牆的種類（陽台的矮牆、玻璃欄杆）與窗的種類、窗台高、窗高
+  for (const k of FPPlan.WALL_KINDS) {
+    const o = document.createElement('option');
+    o.value = k.id; o.textContent = k.name;
+    $('wallKind').appendChild(o);
+  }
+  $('wallKind').addEventListener('change', () => editor.setWallKind($('wallKind').value));
+  for (const k of [...FPPlan.WINDOW_KINDS, { id: '', name: '自訂' }]) {
+    const o = document.createElement('option');
+    o.value = k.id; o.textContent = k.name;
+    $('winKind').appendChild(o);
+  }
+  $('winKind').addEventListener('change', () => {
+    const k = FPPlan.WINDOW_KINDS.find(k => k.id === $('winKind').value);
+    if (k) editor.setWindowSize(k.sill, k.height);
+  });
+  const winSize = () => editor.setWindowSize(+$('winSill').value, +$('winH').value);
+  $('winSill').addEventListener('change', winSize);
+  $('winH').addEventListener('change', winSize);
   $('roomName').addEventListener('change', () => editor.renameRoom($('roomName').value));
   for (const f of FPMaterials.FLOORS) {
     const o = document.createElement('option');
