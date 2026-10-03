@@ -10,7 +10,9 @@
 
   let src = null;      // 目前的原圖：{w, h, gray, canvas, dataURL}；PDF 另有 vector: {lines, ppm}，fromPdf 表示原圖來自 PDF
   let pdf = null;      // 目前開啟的 PDF：{doc, page}
-  let plan = null;     // 目前的平面圖 JSON
+  let plan = null;     // 目前的平面圖 JSON（目前樓層）
+  let building = null; // 整棟房子：{floors: [{id, name, offset, plan}], active}，plan 就是 floors[active].plan
+  let pendingFloor = false; // 按了「新增樓層」：下一份辨識結果變成新的一層，不建立新專案
   let edited = false;  // 使用者是否手動改過牆（改過就不會因為調整辨識設定而被覆蓋）
   let lastStats = {};  // 最近一次辨識的覆蓋率與時間
   let measured = 0;    // 比例尺工具量到的距離（公尺）
@@ -109,18 +111,20 @@
 
   // 專案：每張上傳的平面圖一個專案。上傳新檔案時先記下名字，下一次存檔時建立新專案
   let projects = null, pendingProject = null;
-  function newProject(name, id) { pendingProject = { name, id }; }
+  function newProject(name, id) { if (!pendingFloor) pendingProject = { name, id }; }
   function save() {
     if (plan) FPSchemes.sync(plan);
-    if (viewing || !projects || !plan) return;
+    if (building && building.floors[building.active]) building.floors[building.active].edited = edited;
+    if (viewing || !projects || !plan || !building) return;
+    const data = FPBuilding.toJSON(building);
     let done;
     if (pendingProject || !projects.current) {
       const pp = pendingProject || { name: '我的房子' };
       pendingProject = null;
-      done = projects.create(pp.name, plan, edited, pp.id).done;
+      done = projects.create(pp.name, data, edited, pp.id).done;
       syncProjects();
     } else {
-      done = projects.save(plan, edited);
+      done = projects.save(data, edited);
     }
     done.catch(() => note('存檔失敗：瀏覽器的儲存空間可能不夠了，請刪除不用的專案，或先用「下載 JSON」備份。', true));
   }
@@ -144,7 +148,47 @@
     const p = await projects.open(id);
     if (!p) { note('找不到這個專案。', true); syncProjects(); return false; }
     syncProjects();
-    return openPlan(p.plan, '已開啟「' + p.name + '」。', p.edited);
+    return openBuilding(p.plan, '已開啟「' + p.name + '」。', p.edited);
+  }
+
+  // 開啟平面圖或整棟房子的 JSON：整棟房子先記下來，再開啟目前樓層
+  function openBuilding(v, message, wasEdited) {
+    const errors = FPBuilding.validate(v);
+    if (errors.length) { note('無法開啟：' + errors.slice(0, 3).join('；'), true); return false; }
+    pendingFloor = false;
+    building = FPBuilding.wrap(v);
+    const f = building.floors[building.active];
+    return openPlan(f.plan, message, f.edited != null ? f.edited : wasEdited);
+  }
+
+  // 樓層選單（側欄與 3D 畫面上各一個）
+  function syncFloors() {
+    const floors = building ? building.floors : [];
+    for (const id of ['floor', 'floorQuick']) {
+      const sel = $(id);
+      sel.textContent = '';
+      floors.forEach((f, i) => {
+        const o = document.createElement('option');
+        o.value = i; o.textContent = f.name;
+        sel.appendChild(o);
+      });
+      sel.value = building ? building.active : '';
+    }
+    $('floorQuick').hidden = floors.length < 2;
+    const f = building && building.floors[building.active];
+    if (document.activeElement !== $('floorName')) $('floorName').value = f ? f.name : '';
+    $('floorDel').disabled = floors.length < 2;
+    $('floorAlign').hidden = !building || building.active === 0;
+    if (f) { $('floorDX').value = f.offset[0]; $('floorDY').value = f.offset[1]; }
+    $('floorAdd').textContent = pendingFloor ? '取消新增樓層' : '新增樓層';
+  }
+
+  function switchFloor(i) {
+    if (!building || !building.floors[i] || i === building.active) return;
+    save();
+    building.active = i;
+    const f = building.floors[i];
+    openPlan(f.plan, '目前在「' + f.name + '」。', f.edited != null ? f.edited : true);
   }
 
   function planWidth(p) {
@@ -278,6 +322,15 @@
 
   // 換成一份新的平面圖（辨識結果或開啟的檔案）：2D 編輯器重新開始、復原紀錄清空
   function setPlan(p, stats) {
+    // 整棟房子：已經是其中一層就切過去；按了「新增樓層」就加在最上面；新專案重新開始；否則取代目前樓層
+    const idx = building ? building.floors.findIndex(f => f.plan === p) : -1;
+    if (idx >= 0) building.active = idx;
+    else if (pendingFloor && building) {
+      pendingFloor = false;
+      const f = FPBuilding.addFloor(building, p);
+      note('已新增「' + f.name + '」，位置對齊下面那一層的外牆，可以在左側「樓層」微調。');
+    } else if (pendingProject || !building) building = FPBuilding.wrap(p);
+    else building.floors[building.active].plan = p;
     plan = p;
     updateRooms();
     FPSchemes.ensure(plan);
@@ -291,6 +344,8 @@
     const image = src ? src.canvas : null;
     drawPreview(plan, image);
     view3d.setPlan(plan, image);
+    view3d.setContext(building ? FPBuilding.below(building) : []);
+    syncFloors();
     const bb = FPPlan.bounds(plan);
     const total = plan.walls.reduce((sum, w) => sum + FPPlan.wallLength(w), 0);
     $('sSize').textContent = (bb.maxX - bb.minX).toFixed(1) + ' × ' + (bb.maxY - bb.minY).toFixed(1) + ' m';
@@ -476,7 +531,8 @@
 
   function downloadPlan() {
     if (!plan) return;
-    const blob = new Blob([JSON.stringify(plan, null, 2)], { type: 'application/json' });
+    FPSchemes.sync(plan);
+    const blob = new Blob([JSON.stringify(building ? FPBuilding.toJSON(building) : plan, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'floorplan.json';
@@ -492,8 +548,9 @@
       let p;
       try { p = JSON.parse(text); } catch (e) { note('無法開啟：檔案不是有效的 JSON。', true); return; }
       // 檔案裡的牆可能已經手動修改過，當作已修改，避免被重新辨識蓋掉
+      pendingFloor = false;   // JSON 一律開成新專案（裡面可能已經有好幾層）
       newProject(file.name.replace(/\.json$/i, ''));
-      if (!openPlan(p, '已開啟 ' + file.name + '。', true)) pendingProject = null;
+      if (!openBuilding(p, '已開啟 ' + file.name + '。', true)) pendingProject = null;
     });
   }
 
@@ -571,6 +628,7 @@
   }
 
   function loadSample(color) {
+    pendingFloor = false;
     $('planW').value = 13.6; $('minT').value = 5; $('invert').checked = false; $('autoThr').checked = true;
     syncOutputs();
     loadSource(color === true ? FPSample.drawColor() : FPSample.draw());
@@ -867,6 +925,8 @@
     try { p = await FPShare.decode(data); }
     catch (e) { setViewing(false); if (!plan && !(await restore())) loadSample(); note(e.message, true); return; }
     setViewing(true);
+    building = null;   // 分享的平面圖自成一棟，不要蓋到這台電腦目前專案的樓層
+    pendingFloor = false;
     openPlan(p, '', true);
     const rooms = (p.rooms || []).length, schemes = (p.schemes || []).length;
     note('共 ' + rooms + ' 個空間' + (schemes > 1 ? '、' + schemes + ' 個裝修方案，可以在右上角切換' : '') + '。');
@@ -882,6 +942,46 @@
     refresh();
     note('已存成新專案「' + (projects.get(projects.current) || {}).name + '」，現在可以編輯了。');
   });
+
+  // 樓層：切換、新增（上傳圖或框選 PDF 的另一層）、改名、刪除、對齊
+  $('floor').addEventListener('change', () => switchFloor(+$('floor').value));
+  $('floorQuick').addEventListener('change', () => switchFloor(+$('floorQuick').value));
+  $('floorAdd').addEventListener('click', () => {
+    pendingFloor = !pendingFloor && !!building;
+    if (pendingFloor) save();   // 先存好目前這一層（含「已修改」）
+    syncFloors();
+    if (!pendingFloor) { note('已取消新增樓層。'); return; }
+    if (pdf && pdf.page) {
+      showTab('pick');
+      note('請在 PDF 上框選這一層，按「辨識這一層」就會加成新的樓層。');
+    } else {
+      note('請上傳這一層的平面圖（圖片或 PDF），辨識結果會加成新的樓層。');
+      $('file').click();
+    }
+  });
+  $('floorName').addEventListener('change', () => {
+    if (!building || !FPBuilding.rename(building, building.active, $('floorName').value)) return;
+    save();
+    syncFloors();
+  });
+  $('floorDel').addEventListener('click', () => {
+    const f = building && building.floors[building.active];
+    if (!f || building.floors.length < 2 || !confirm('要刪除「' + f.name + '」嗎？這一層的牆、家具都會刪除，無法復原。')) return;
+    FPBuilding.removeFloor(building, building.active);
+    const cur = building.floors[building.active];
+    openPlan(cur.plan, '已刪除「' + f.name + '」。', cur.edited != null ? cur.edited : true);
+  });
+  // 對齊：這一層相對於整棟房子的位移（公尺），用來和下面的樓層上下對齊
+  const setOffset = () => {
+    const f = building && building.floors[building.active];
+    const x = +$('floorDX').value, y = +$('floorDY').value;
+    if (!f || !isFinite(x) || !isFinite(y)) return;
+    f.offset = [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000];
+    view3d.setContext(FPBuilding.below(building));
+    save();
+  };
+  $('floorDX').addEventListener('change', setOffset);
+  $('floorDY').addEventListener('change', setOffset);
 
   // 專案選單：切換、改名、刪除
   $('project').addEventListener('change', () => { save(); openProject($('project').value); });
