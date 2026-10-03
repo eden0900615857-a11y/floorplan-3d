@@ -22,6 +22,19 @@
   <div class="layout">
     <aside>
       <div class="group edit-only">
+        <span class="label">專案</span>
+        <div class="ctl">
+          <label for="project">目前的房子</label>
+          <select id="project"></select>
+        </div>
+        <div class="btnrow">
+          <label class="thick" for="projectName">名稱 <input id="projectName" type="text" maxlength="30"></label>
+          <button id="projectDel" type="button">刪除</button>
+        </div>
+        <p class="hint">每上傳一張平面圖就是一個新專案，自動存在這台電腦的瀏覽器裡，可以在這裡切換。範例固定是「範例」專案。</p>
+      </div>
+
+      <div class="group edit-only">
         <span class="label">平面圖</span>
         <div class="btnrow">
           <label class="filebtn">上傳圖片或 PDF<input id="file" type="file" accept="image/*,.pdf,application/pdf"></label>
@@ -109,9 +122,10 @@
         </div>
         <p class="hint">同一份平面圖可以做好幾種裝修（家具、地板、牆面顏色），切換方案比較看看。牆和門窗是所有方案共用的。</p>
         <div class="ctl">
-          <label for="wallPaint">牆面顏色</label>
+          <label for="wallPaint">全屋牆面顏色</label>
           <select id="wallPaint"></select>
         </div>
+        <p class="hint">個別房間要換牆色：到「2D 校正」點選房間，選「牆色」。</p>
         <p class="hint">家具：到「2D 校正」按「擺家具」，選好種類後點在圖上放下。放好可以拖曳移動、旋轉、修改尺寸，走進房子時會擋路。目前放了 <b id="furnCount" class="num">0</b> 件。</p>
       </div>
 
@@ -152,6 +166,11 @@
         <span class="viewtag" id="viewTag">左鍵拖曳旋轉 · 右鍵平移 · 滾輪縮放</span>
         <div class="viewbar">
           <select id="schemeQuick" aria-label="切換裝修方案"></select>
+          <select id="lightMode" aria-label="光線">
+            <option value="day">白天</option>
+            <option value="evening">傍晚</option>
+            <option value="night">夜晚</option>
+          </select>
           <button type="button" id="shot">匯出圖片</button>
           <button type="button" class="walkbtn" id="walk" aria-pressed="false">走進房子</button>
         </div>
@@ -192,6 +211,7 @@
           <span class="thick" id="roomCtl" hidden>
             <label class="thick" for="roomName">房名 <input id="roomName" type="text" maxlength="20"></label>
             <label class="thick" for="roomFloor">地板 <select id="roomFloor"></select></label>
+            <label class="thick" for="roomPaint">牆色 <select id="roomPaint"></select></label>
           </span>
         </div>
         <div class="editcanvas" id="editCanvas"></div>
@@ -238,6 +258,7 @@
 <script src="js/scene.js"></script>
 <script src="js/rooms.js"></script>
 <script src="js/schemes.js"></script>
+<script src="js/projects.js"></script>
 <script src="js/quantities.js"></script>
 <script src="js/edit.js"></script>
 <script src="js/editor.js"></script>

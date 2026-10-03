@@ -167,5 +167,74 @@
     return Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
   }
 
-  return { VERSION, OPENING_DEFAULTS, fromSegments, makeOpening, validate, bounds, wallLength, openingsOf, openingSpans, wallPieces };
+  // 3D 用：門窗的門框、門片、門把、窗框。每個零件是一個方塊：
+  // s 沿牆距離、q 離中心線的距離（正的是 a→b 的左側，和門的 swing 'left' 同一邊）、y0–y1 高度，
+  // len × t 是方塊的長和厚，angle 是方塊長邊和牆方向的夾角（弧度，往左側轉為正）；kind 是 frame、leaf、handle。
+  const FRAME = 0.05, LEAF_T = 0.04, DOOR_OPEN = 70 * Math.PI / 180;
+  function openingParts(wall, sp) {
+    const o = sp.o, t = wall.thickness, H = wall.height, parts = [];
+    const add = (kind, s, q, y0, y1, len, th, angle) => parts.push({ kind, s, q, y0, y1, len, t: th, angle: angle || 0 });
+    const w = sp.s1 - sp.s0, mid = (sp.s0 + sp.s1) / 2;
+    if (o.type === 'door') {
+      const top = Math.min(H, o.height);
+      // 門框：兩側和上方，比牆厚一點點
+      add('frame', sp.s0 + FRAME / 2, 0, 0, top, FRAME, t + 0.02);
+      add('frame', sp.s1 - FRAME / 2, 0, 0, top, FRAME, t + 0.02);
+      add('frame', mid, 0, top - FRAME, top, w, t + 0.02);
+      // 門片：門軸在牆面上（開門那一側），從關著的位置往開門方向轉 70 度
+      const side = o.swing === 'right' ? -1 : 1, fromA = o.hinge !== 'b';
+      const lw = Math.max(0.1, w - 2 * FRAME), hs = fromA ? sp.s0 + FRAME : sp.s1 - FRAME, hq = side * (t / 2);
+      const closed = fromA ? 0 : Math.PI, angle = closed - (fromA ? -1 : 1) * side * DOOR_OPEN;
+      const dx = Math.cos(angle), dy = Math.sin(angle);
+      const leafAt = k => [hs + dx * lw * k, hq + dy * lw * k];
+      const c = leafAt(0.5);
+      add('leaf', c[0], c[1] + side * LEAF_T / 2, 0.01, top - FRAME - 0.005, lw, LEAF_T, angle);
+      const hd = leafAt(0.88);
+      add('handle', hd[0], hd[1] + side * LEAF_T / 2, 0.95, 1.0, 0.03, LEAF_T + 0.12, angle);
+      return parts;
+    }
+    // 窗：窗框（四邊）、中間的直框（寬窗才有）、室內的窗台板
+    const y0 = Math.min(o.sill || 0, H), y1 = Math.min(H, y0 + o.height), depth = Math.min(t, 0.08);
+    if (y1 - y0 < 0.05) return parts;
+    add('frame', sp.s0 + FRAME / 2, 0, y0, y1, FRAME, depth);
+    add('frame', sp.s1 - FRAME / 2, 0, y0, y1, FRAME, depth);
+    add('frame', mid, 0, y1 - FRAME, y1, w, depth);
+    add('frame', mid, 0, y0, y0 + FRAME, w, depth);
+    if (w > 0.8) add('frame', mid, 0, y0, y1, FRAME * 0.8, depth);
+    if (y0 > 0.05) add('frame', mid, 0, y0 - 0.03, y0, w + 0.1, t + 0.08);
+    return parts;
+  }
+
+  // 3D 牆色用：一段牆（沿牆 s0–s1）的左右兩個牆面各屬於哪個房間。
+  // roomAt([x, y]) 回傳該點所在的房間或 null；每 step 公尺在牆面外 0.15 公尺取樣，
+  // 落在隔間牆裡（沒有房間）的取樣跟著前一個，回傳 [{s0, s1, left, right}]，左右房間相同的連成一段。
+  function faceRooms(wall, s0, s1, roomAt, step) {
+    const L = wallLength(wall);
+    if (!L || s1 <= s0) return [];
+    step = step || 0.1;
+    const ux = (wall.b[0] - wall.a[0]) / L, uy = (wall.b[1] - wall.a[1]) / L, d = wall.thickness / 2 + 0.15;
+    const n = Math.max(1, Math.round((s1 - s0) / step)), ds = (s1 - s0) / n;
+    const at = (s, k) => roomAt([wall.a[0] + ux * s + uy * d * k, wall.a[1] + uy * s - ux * d * k]);
+    const samples = [];
+    for (let i = 0; i < n; i++) {
+      const s = s0 + (i + 0.5) * ds;
+      samples.push([at(s, 1), at(s, -1)]);
+    }
+    // 沒有房間的取樣：先往前補，開頭的再往後補
+    for (const k of [0, 1]) {
+      let last = null;
+      for (const sm of samples) { if (sm[k]) last = sm[k]; else sm[k] = last; }
+      last = null;
+      for (let i = samples.length - 1; i >= 0; i--) { if (samples[i][k]) last = samples[i][k]; else samples[i][k] = last; }
+    }
+    const runs = [];
+    samples.forEach((sm, i) => {
+      const prev = runs[runs.length - 1];
+      if (prev && prev.left === sm[0] && prev.right === sm[1]) prev.s1 = s0 + (i + 1) * ds;
+      else runs.push({ s0: s0 + i * ds, s1: s0 + (i + 1) * ds, left: sm[0], right: sm[1] });
+    });
+    return runs;
+  }
+
+  return { VERSION, OPENING_DEFAULTS, fromSegments, makeOpening, validate, bounds, wallLength, openingsOf, openingSpans, wallPieces, openingParts, faceRooms };
 });

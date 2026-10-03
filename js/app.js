@@ -3,9 +3,10 @@
 (function () {
   const $ = id => document.getElementById(id);
   const MAX_SIDE = 900;                          // 辨識用的工作解析度（長邊像素）
-  const STORAGE_KEY = 'floorplan-3d:last-plan';
+  const STORAGE_KEY = 'floorplan-3d:last-plan';   // 舊版只存一份平面圖：第一次開啟時搬進專案
   const EDITED_KEY = 'floorplan-3d:edited';
   const AI_KEY = 'floorplan-3d:ai';               // 使用者有沒有打開 AI 辨識
+  const LIGHT_KEY = 'floorplan-3d:light';         // 3D 的光線：白天、傍晚、夜晚
 
   let src = null;      // 目前的原圖：{w, h, gray, canvas, dataURL}；PDF 另有 vector: {lines, ppm}，fromPdf 表示原圖來自 PDF
   let pdf = null;      // 目前開啟的 PDF：{doc, page}
@@ -35,7 +36,7 @@
         syncFurnColor(furn.color || '');
       }
       $('roomCtl').hidden = !room;
-      if (room) { $('roomName').value = room.name; $('roomFloor').value = FPMaterials.floor(room.floor).id; }
+      if (room) { $('roomName').value = room.name; $('roomFloor').value = FPMaterials.floor(room.floor).id; $('roomPaint').value = room.paint || ''; }
       $('thick').disabled = !wall;
       $('thick').value = wall ? wall.thickness : '';
       $('openWCtl').hidden = !op;
@@ -97,13 +98,44 @@
     if (!v) $('redetectBox').hidden = true;
   }
 
+  // 專案：每張上傳的平面圖一個專案。上傳新檔案時先記下名字，下一次存檔時建立新專案
+  let projects = null, pendingProject = null;
+  function newProject(name, id) { pendingProject = { name, id }; }
   function save() {
     if (plan) FPSchemes.sync(plan);
-    if (viewing) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(plan));
-      localStorage.setItem(EDITED_KEY, edited ? '1' : '');
-    } catch (e) { /* 空間不足或瀏覽器不允許時略過 */ }
+    if (viewing || !projects || !plan) return;
+    let done;
+    if (pendingProject || !projects.current) {
+      const pp = pendingProject || { name: '我的房子' };
+      pendingProject = null;
+      done = projects.create(pp.name, plan, edited, pp.id).done;
+      syncProjects();
+    } else {
+      done = projects.save(plan, edited);
+    }
+    done.catch(() => note('存檔失敗：瀏覽器的儲存空間可能不夠了，請刪除不用的專案，或先用「下載 JSON」備份。', true));
+  }
+
+  function syncProjects() {
+    if (!projects) return;
+    const sel = $('project'), list = projects.list();
+    sel.textContent = '';
+    for (const e of list) {
+      const o = document.createElement('option');
+      o.value = e.id; o.textContent = e.name;
+      sel.appendChild(o);
+    }
+    sel.value = projects.current || '';
+    const cur = projects.get(projects.current);
+    if (document.activeElement !== $('projectName')) $('projectName').value = cur ? cur.name : '';
+    $('projectDel').disabled = !cur;
+  }
+
+  async function openProject(id) {
+    const p = await projects.open(id);
+    if (!p) { note('找不到這個專案。', true); syncProjects(); return false; }
+    syncProjects();
+    return openPlan(p.plan, '已開啟「' + p.name + '」。', p.edited);
   }
 
   function planWidth(p) {
@@ -133,22 +165,38 @@
     });
     $('thr').value = mask.threshold;
     $('thrOut').textContent = mask.threshold;
-    const planW = Math.max(1, +$('planW').value || 12);
-    const ppm = src.w / planW;
-    // 牆：AI 辨識用模型找到的牆像素，否則用黑白門檻找到的粗線
-    const vec = ml ? FPML.walls(ml, src.w, src.h, ppm) : FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
-    const walls = ml ? vec.mask : mask.walls;
-    // 圖片裁到外牆時，沿著圖片邊緣補牆（AI 辨識在 FPML.walls 裡已經補過）
-    const closed = ml ? vec : FPVectorize.closeBorder(vec.segments, src.w, src.h);
-    // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
-    const ink = new Uint8Array(mask.raw.length);
-    for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - (mask.walls[i] | walls[i]));
-    // AI 辨識時，規則找不到開門弧或窗線的缺口，再問模型是不是門窗
-    const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, {
-      minGap: 0.5 * ppm, maxGap: 2.5 * ppm, hint: ml ? FPML.openingHint(ml, src.w, src.h) : null
-    });
-    // 外牆沒畫完整（圖片裁掉、陽台只有細欄杆線）的地方，把牆沿著外緣延伸接起來，讓房間封閉
-    FPVectorize.closeOuter(ops.segments, src.w, src.h, { tol: 0.25 * ppm, reach: 0.5 * ppm, maxLen: 6 * ppm });
+    // 牆、門窗、外牆：每公尺 ppm 像素（門窗缺口的寬度範圍、接牆距離都依比例換算）
+    const build = ppm => {
+      // 牆：AI 辨識用模型找到的牆像素，否則用黑白門檻找到的粗線
+      const vec = ml ? FPML.walls(ml, src.w, src.h, ppm) : FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
+      const walls = ml ? vec.mask : mask.walls;
+      // 圖片裁到外牆時，沿著圖片邊緣補牆（AI 辨識在 FPML.walls 裡已經補過）
+      const closed = ml ? vec : FPVectorize.closeBorder(vec.segments, src.w, src.h);
+      // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
+      const ink = new Uint8Array(mask.raw.length);
+      for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - (mask.walls[i] | walls[i]));
+      // AI 辨識時，規則找不到開門弧或窗線的缺口，再問模型是不是門窗
+      const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, {
+        minGap: 0.5 * ppm, maxGap: 2.5 * ppm, hint: ml ? FPML.openingHint(ml, src.w, src.h) : null
+      });
+      // 外牆沒畫完整（圖片裁掉、陽台只有細欄杆線）的地方，把牆沿著外緣延伸接起來，讓房間封閉
+      FPVectorize.closeOuter(ops.segments, src.w, src.h, { tol: 0.25 * ppm, reach: 0.5 * ppm, maxLen: 6 * ppm });
+      return { vec, ops };
+    };
+    let ppm = src.w / Math.max(1, +$('planW').value || 12);
+    let { vec, ops } = build(ppm);
+    // 新上傳的圖片：用門寬推算比例（AI 辨識要等模型跑完，用模型的結果推算）
+    if (src.autoScale && (!ai || ml)) {
+      src.autoScale = false;
+      const est = FPOpenings.scaleFromDoors(ops.openings);
+      if (est) {
+        if (Math.abs(est / ppm - 1) > 0.03) { ppm = est; ({ vec, ops } = build(ppm)); }
+        $('planW').value = +(src.w / ppm).toFixed(1);
+        src.scaleMsg = '已依門寬（約 ' + FPOpenings.DOOR_WIDTH * 100 + ' 公分）推算比例，圖面寬約 ' + (src.w / ppm).toFixed(1) +
+          ' 公尺。有已知尺寸的話，請到「2D 校正」用比例尺確認。';
+        if (!ai) note(src.scaleMsg);
+      }
+    }
     const p = FPPlan.fromSegments(ops.segments, {
       widthPx: src.w, heightPx: src.h,
       pxPerMeter: ppm,
@@ -178,7 +226,8 @@
         }
         detect();
         const doors = plan.openings.filter(o => o.type === 'door').length;
-        note('AI 辨識出 ' + plan.walls.length + ' 段牆、' + doors + ' 扇門、' + (plan.openings.length - doors) + ' 扇窗、' + plan.rooms.length + ' 個房間。到「2D 校正」可以修正。');
+        note('AI 辨識出 ' + plan.walls.length + ' 段牆、' + doors + ' 扇門、' + (plan.openings.length - doors) + ' 扇窗、' + plan.rooms.length + ' 個房間。' +
+          (s.scaleMsg || '到「2D 校正」可以修正。'));
       })
       .catch(err => { if (src === s) note('AI 辨識失敗：' + (err && err.message ? err.message : err) + ' 目前顯示的是一般辨識的結果。', true); })
       .then(() => { s.mlPending = false; });
@@ -299,7 +348,7 @@
       dl.append(dt, dd);
     };
     for (const f of q.floors) row(f.name, f.area.toFixed(1) + ' m²（叫料 ' + f.order.toFixed(1) + '）');
-    row('牆面油漆（' + q.wall.name + '）', q.wall.area.toFixed(1) + ' m² · 約 ' + q.wall.liters + ' 公升');
+    for (const p of q.paints) row('牆面油漆（' + p.name + '）', p.area.toFixed(1) + ' m² · 約 ' + p.liters + ' 公升');
     row('家具', q.furniture.length ? q.furniture.map(f => f.name + (f.count > 1 ? ' ×' + f.count : '')).join('、') : '還沒有擺家具');
   }
 
@@ -381,7 +430,7 @@
     };
     if (p.source && p.source.image) {
       const img = new Image();
-      img.onload = () => { loadSource(img); autoColorMode(); src.fromPdf = p.source.from === 'pdf'; syncSourceKind(); finish(); };
+      img.onload = () => { loadSource(img); src.autoScale = true; autoColorMode(); src.fromPdf = p.source.from === 'pdf'; syncSourceKind(); finish(); };
       img.onerror = () => { src = null; finish(); };
       img.src = p.source.image;
     } else {
@@ -391,13 +440,29 @@
     return true;
   }
 
-  function restore() {
-    let p = null, wasEdited = false;
-    try {
-      p = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      wasEdited = localStorage.getItem(EDITED_KEY) === '1';
-    } catch (e) { return false; }
-    return !!p && openPlan(p, '已載入上次的結果。', wasEdited);
+  // 開啟上次的專案；舊版存在 localStorage 的平面圖搬成第一個專案
+  async function initProjects() {
+    if (!projects) {
+      let backend;
+      try { backend = await FPProjects.idbBackend('floorplan-3d'); } catch (e) { backend = FPProjects.memoryBackend(); }
+      projects = FPProjects.createStore(backend);
+      try { await projects.init(); } catch (e) { projects = FPProjects.createStore(FPProjects.memoryBackend()); await projects.init(); }
+      let old = null, oldEdited = false;
+      try { old = JSON.parse(localStorage.getItem(STORAGE_KEY)); oldEdited = localStorage.getItem(EDITED_KEY) === '1'; } catch (e) { /* 略過 */ }
+      if (old && !projects.list().length && !FPPlan.validate(old).length) {
+        // 確定寫進專案之後才刪掉舊的那份
+        const ok = await projects.create('我的房子', old, oldEdited).done.then(() => true, () => false);
+        if (ok && projects.persistent) {
+          try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(EDITED_KEY); } catch (e) { /* 略過 */ }
+        }
+      }
+      syncProjects();
+    }
+  }
+  async function restore() {
+    await initProjects();
+    const id = projects.current || (projects.list()[0] || {}).id;
+    return !!id && openProject(id);
   }
 
   function downloadPlan() {
@@ -418,13 +483,14 @@
       let p;
       try { p = JSON.parse(text); } catch (e) { note('無法開啟：檔案不是有效的 JSON。', true); return; }
       // 檔案裡的牆可能已經手動修改過，當作已修改，避免被重新辨識蓋掉
-      openPlan(p, '已開啟 ' + file.name + '。', true);
+      newProject(file.name.replace(/\.json$/i, ''));
+      if (!openPlan(p, '已開啟 ' + file.name + '。', true)) pendingProject = null;
     });
   }
 
   function openImageFile(file) {
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { loadSource(img); autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); note(''); detect(); view3d.resetCamera(); };
+    img.onload = () => { loadSource(img); src.autoScale = true; autoColorMode(); syncSourceKind(); URL.revokeObjectURL(url); note(''); newProject(file.name.replace(/\.[^.]+$/, '')); detect(); view3d.resetCamera(); };
     img.onerror = () => { URL.revokeObjectURL(url); note('無法讀取這張圖片，請改用 JPG 或 PNG。', true); };
     img.src = url;
   }
@@ -445,7 +511,7 @@
   function openPdfFile(file) {
     note('正在讀取 PDF…');
     FPPdfPick.open(file).then(doc => {
-      pdf = { doc, page: null };
+      pdf = { doc, page: null, name: file.name.replace(/\.pdf$/i, '') };
       const sel = $('pdfPage');
       sel.textContent = '';
       for (let i = 1; i <= doc.numPages; i++) {
@@ -476,6 +542,7 @@
       src.vector = { lines: res.lines, ppm: res.pxPerPt * 72000 / (25.4 * scale) };
       src.fromPdf = true;
       syncSourceKind();
+      newProject(pdf.name);
       detect();
       view3d.resetCamera();
       showTab('3d');
@@ -501,6 +568,8 @@
     autoColorMode();
     syncSourceKind();
     note('');
+    // 範例固定放在同一個「範例」專案，重新載入是覆蓋
+    newProject('範例', 'sample');
     detect();
     view3d.resetCamera();
   }
@@ -532,6 +601,7 @@
   // 圖面寬度：等比例縮放目前的平面圖（可以復原），不重新辨識
   $('planW').addEventListener('change', () => {
     const w = +$('planW').value;
+    if (src) src.autoScale = false;   // 使用者自己填了寬度，不再自動推算
     if (!plan || !(w > 0)) return;
     editor.rescale(w / planWidth(plan));
   });
@@ -578,6 +648,13 @@
     $('roomFloor').appendChild(o);
   }
   $('roomFloor').addEventListener('change', () => editor.setRoomFloor($('roomFloor').value));
+  // 房間牆色：第一項是跟全屋一樣
+  for (const w of [{ id: '', name: '跟全屋一樣' }, ...FPMaterials.WALLS]) {
+    const o = document.createElement('option');
+    o.value = w.id; o.textContent = w.name;
+    $('roomPaint').appendChild(o);
+  }
+  $('roomPaint').addEventListener('change', () => editor.setRoomPaint($('roomPaint').value));
 
   // 家具：依分類列出家具庫
   for (const cat of FPFurniture.CATS) {
@@ -616,6 +693,15 @@
   const switchScheme = id => editor.schemeOp(p => (p.activeScheme === id ? false : !!FPSchemes.switchTo(p, id)));
   $('scheme').addEventListener('change', () => switchScheme($('scheme').value));
   $('schemeQuick').addEventListener('change', () => switchScheme($('schemeQuick').value));
+
+  // 光線：只影響 3D 的顯示，記在瀏覽器裡
+  try { $('lightMode').value = localStorage.getItem(LIGHT_KEY) || 'day'; } catch (e) { /* 不允許時略過 */ }
+  if (!$('lightMode').value) $('lightMode').value = 'day';
+  view3d.setLight($('lightMode').value);
+  $('lightMode').addEventListener('change', () => {
+    view3d.setLight($('lightMode').value);
+    try { localStorage.setItem(LIGHT_KEY, $('lightMode').value); } catch (e) { /* 不允許時略過 */ }
+  });
   $('schemeCopy').addEventListener('click', () => editor.schemeOp(p => { FPSchemes.add(p, false); }));
   $('schemeBlank').addEventListener('click', () => editor.schemeOp(p => { FPSchemes.add(p, true); }));
   $('schemeName').addEventListener('change', () => editor.schemeOp(p => {
@@ -751,7 +837,7 @@
   async function openShared(data) {
     let p;
     try { p = await FPShare.decode(data); }
-    catch (e) { setViewing(false); if (!plan && !restore()) loadSample(); note(e.message, true); return; }
+    catch (e) { setViewing(false); if (!plan && !(await restore())) loadSample(); note(e.message, true); return; }
     setViewing(true);
     openPlan(p, '', true);
     const rooms = (p.rooms || []).length, schemes = (p.schemes || []).length;
@@ -759,24 +845,39 @@
   }
 
   // 把分享的平面圖存到這台電腦，改成可以編輯
-  $('viewerEdit').addEventListener('click', () => {
-    let had = false;
-    try { had = !!localStorage.getItem(STORAGE_KEY); } catch (e) { /* 略過 */ }
-    if (had && !confirm('這台電腦上原本的平面圖會被取代（建議先用「下載 JSON」備份）。要繼續嗎？')) return;
+  $('viewerEdit').addEventListener('click', async () => {
+    await initProjects();
     setViewing(false);
     history.replaceState(null, '', location.pathname + location.search);
+    newProject('分享的平面圖');
     save();
     refresh();
-    note('已存到這台電腦，現在可以編輯了。');
+    note('已存成新專案「' + (projects.get(projects.current) || {}).name + '」，現在可以編輯了。');
+  });
+
+  // 專案選單：切換、改名、刪除
+  $('project').addEventListener('change', () => { save(); openProject($('project').value); });
+  $('projectName').addEventListener('change', () => {
+    if (!projects || !projects.current) return;
+    projects.rename(projects.current, $('projectName').value);
+    syncProjects();
+  });
+  $('projectDel').addEventListener('click', () => {
+    const cur = projects && projects.get(projects.current);
+    if (!cur || !confirm('要刪除專案「' + cur.name + '」嗎？刪除後無法復原。')) return;
+    const next = projects.remove(cur.id);
+    syncProjects();
+    if (next) openProject(next);
+    else loadSample();
   });
   window.addEventListener('hashchange', () => { const d = FPShare.fromHash(location.hash); if (d) openShared(d); });
 
   syncOutputs();
   $('toolHint').textContent = TOOL_HINTS.select;
-  const start = () => {
+  const start = async () => {
     const shared = FPShare.fromHash(location.hash);
     if (shared) openShared(shared);
-    else if (!restore()) loadSample();
+    else if (!(await restore())) loadSample();
   };
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
 })();

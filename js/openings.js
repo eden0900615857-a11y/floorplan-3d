@@ -96,7 +96,47 @@
     const arc = findDoorArc(ink.near, seg.dir, seg.c, t, g0, g1);
     if (arc) return { type: 'door', hinge: arc.hinge, side: arc.side };
     if (hasWindowLines(ink.at, seg.dir, seg.c, t, g0, g1)) return { type: 'window' };
-    return hint ? hint(seg.dir, seg.c, t, g0, g1) : null;
+    if (!hint) return null;
+    const h = hint(seg.dir, seg.c, t, g0, g1);
+    if (!h || h.type !== 'door') return h;
+    // 模型說是門、但規則沒找到夠完整的開門弧：看哪個方向最像門（弧線＋門片），決定門軸和開門方向。
+    // 缺口附近幾乎沒有任何弧線或門片的，多半是模型把通道誤認成門，不採用
+    const best = doorGuess(ink.near, seg.dir, seg.c, t, g0, g1);
+    return best.score >= HINT_DOOR_MIN ? { type: 'door', hinge: best.hinge, side: best.side } : null;
+  }
+
+  // 四種門軸 × 開門方向各自的分數，取兩種證據中比較強的一種：
+  // - 開門弧：弧上有線、弧的內外兩側沒有線（半徑試 70%–100% 的缺口寬，門片常比門洞窄）；
+  // - 門片：從門軸垂直牆面畫出去的直線，有 80% 以上的長度看得到線。
+  // 只靠模型的門要有其中一種證據（分數 HINT_DOOR_MIN 以上），才不會把通道、磁磚線當成門。
+  const HINT_DOOR_MIN = 0.3, HINT_LEAF = 0.8;
+  function doorGuess(inkNear, dir, c, t, g0, g1) {
+    const gap = g1 - g0;
+    let best = null;
+    for (const hinge of ['p0', 'p1']) {
+      for (const side of [1, -1]) {
+        const cq = c + side * t / 2;
+        const ring = r => {
+          let hit = 0, n = 0;
+          for (let deg = 12; deg <= 90; deg += 4) {
+            const th = deg * Math.PI / 180;
+            const along = hinge === 'p0' ? g0 + r * Math.cos(th) : g1 - r * Math.cos(th);
+            n++;
+            if (inkNear(...toXY(dir, along, cq + side * r * Math.sin(th)))) hit++;
+          }
+          return hit / n;
+        };
+        let arc = 0;
+        for (const k of [0.7, 0.8, 0.9, 1]) {
+          const r = gap * k;
+          arc = Math.max(arc, ring(r) - Math.max(ring(r * (1 - ARC_SIDE)), ring(r * (1 + ARC_SIDE))));
+        }
+        const lf = leaf(inkNear, dir, hinge === 'p0' ? g0 : g1, cq, side, gap);
+        const score = Math.max(arc, lf >= HINT_LEAF ? lf : 0), total = arc + lf;
+        if (!best || score > best.score || (score === best.score && total > best.total)) best = { hinge, side, score, total };
+      }
+    }
+    return best;
   }
 
   // segs：vectorize 的線段；ink：細線遮罩；opts：{minGap, maxGap}（像素），可選 opts.hint（見 classify）
@@ -163,5 +203,15 @@
     return { segments: result, openings };
   }
 
-  return { detect, hasWindowLines, findDoorArc, leaf };
+  // 用門寬推算比例：格局圖通常沒有標尺寸，但門洞大多是 90 公分左右。
+  // 取找到的門洞寬度（像素）的中位數當作 DOOR_WIDTH 公尺，回傳每公尺幾個像素；門少於 2 扇時無法推算，回傳 null
+  const DOOR_WIDTH = 0.9;
+  function scaleFromDoors(openings) {
+    const widths = openings.filter(o => o.type === 'door').map(o => o.g1 - o.g0).sort((a, b) => a - b);
+    if (widths.length < 2) return null;
+    const n = widths.length, mid = n % 2 ? widths[n >> 1] : (widths[n / 2 - 1] + widths[n / 2]) / 2;
+    return mid / DOOR_WIDTH;
+  }
+
+  return { detect, hasWindowLines, findDoorArc, leaf, doorGuess, scaleFromDoors, DOOR_WIDTH };
 });
