@@ -1,6 +1,13 @@
 // 內建範例平面圖：用 Canvas 畫一張黑白施工圖風格的兩房格局，含門弧、家具、文字與尺寸線；
 // 另一張是同樣格局的建商彩色格局圖風格（木紋地板、磁磚、彩色家具、陰影、浮水印）。
-(function (root) {
+// 牆、窗、門、家具輪廓的座標是資料（1000 × 700 的圖），test/pipeline.test.js 用同一份資料在 Node 畫出範例圖來測辨識流程。
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.FPSample = api;
+})(typeof self !== 'undefined' ? self : this, function () {
+  const SIZE = [1000, 700];
+  // 牆：實心矩形 [x, y, 寬, 高]
   const WALLS = [
     // 外牆（厚 14）
     [60,60,160,14],[300,60,300,14],[700,60,240,14],
@@ -13,6 +20,22 @@
     [609,380,40,9],[719,380,207,9],
     [700,389,9,131]
   ];
+  // 窗：上方外牆缺口的 x 範圍 [x0, x1]（牆在 y 60–74）
+  const WINDOWS = [[220,300],[600,700]];
+  // 門：門軸 (hx, hy)、半徑、開門弧的起訖角度、門片另一端 (lx, ly)
+  const DOORS = [
+    [440,626,80,Math.PI*1.5,Math.PI*2,440,546],
+    [324,389,70,0,Math.PI/2,324,459],
+    [649,389,70,0,Math.PI/2,649,459],
+    [529,309,71,0,Math.PI/2,529,380]
+  ];
+  // 家具輪廓（黑白範例）：空心矩形 [x, y, 寬, 高]
+  const FURNITURE = [
+    [110,110,150,200],[110,110,150,40],
+    [700,110,130,180],[700,110,130,36],
+    [140,540,260,70],[210,450,120,60],
+    [760,580,150,40]
+  ];
   function drawSamplePlan(){
     const c = document.createElement('canvas'); c.width = 1000; c.height = 700;
     const g = c.getContext('2d');
@@ -21,21 +44,15 @@
     WALLS.forEach(w=>g.fillRect(...w));
     g.strokeStyle = '#111'; g.lineWidth = 1.5;
     // 窗（牆上缺口內的細雙線）
-    [[220,300],[600,700]].forEach(([a,b])=>{
+    WINDOWS.forEach(([a,b])=>{
       g.beginPath(); g.moveTo(a,64); g.lineTo(b,64); g.moveTo(a,70); g.lineTo(b,70); g.stroke();
     });
     // 門（開門弧線與門片）
     const door=(hx,hy,r,a0,a1,lx,ly)=>{g.beginPath();g.arc(hx,hy,r,a0,a1);g.stroke();g.beginPath();g.moveTo(hx,hy);g.lineTo(lx,ly);g.stroke();};
-    door(440,626,80,Math.PI*1.5,Math.PI*2,440,546);
-    door(324,389,70,0,Math.PI/2,324,459);
-    door(649,389,70,0,Math.PI/2,649,459);
-    door(529,309,71,0,Math.PI/2,529,380);
+    DOORS.forEach(d=>door(...d));
     // 家具輪廓
     g.lineWidth = 2;
-    g.strokeRect(110,110,150,200); g.strokeRect(110,110,150,40);
-    g.strokeRect(700,110,130,180); g.strokeRect(700,110,130,36);
-    g.strokeRect(140,540,260,70); g.strokeRect(210,450,120,60);
-    g.strokeRect(760,580,150,40);
+    FURNITURE.forEach(f=>g.strokeRect(...f));
     g.beginPath(); g.ellipse(470,150,26,34,0,0,Math.PI*2); g.stroke();
     // 房間名稱與面積
     g.fillStyle = '#111'; g.textAlign = 'center';
@@ -100,14 +117,11 @@
     WALLS.forEach(w=>g.fillRect(...w));
     // 窗：淺藍色
     g.fillStyle = '#9CC9E8';
-    g.fillRect(220,63,80,8); g.fillRect(600,63,100,8);
+    WINDOWS.forEach(([a,b])=>g.fillRect(a,63,b-a,8));
     // 門：灰色細線
     g.strokeStyle = '#6B6B6B'; g.lineWidth = 1.5;
     const door=(hx,hy,r,a0,a1,lx,ly)=>{g.beginPath();g.arc(hx,hy,r,a0,a1);g.stroke();g.beginPath();g.moveTo(hx,hy);g.lineTo(lx,ly);g.stroke();};
-    door(440,626,80,Math.PI*1.5,Math.PI*2,440,546);
-    door(324,389,70,0,Math.PI/2,324,459);
-    door(649,389,70,0,Math.PI/2,649,459);
-    door(529,309,71,0,Math.PI/2,529,380);
+    DOORS.forEach(d=>door(...d));
     // 房名與坪數
     g.textAlign='center';
     const label=(t,s,x,y)=>{g.fillStyle='#333';g.font='600 22px "Noto Sans TC",sans-serif';g.fillText(t,x,y);g.fillStyle='#8A5A2B';g.font='15px "Noto Sans TC",sans-serif';g.fillText(s,x,y+22);};
@@ -120,5 +134,5 @@
     g.save(); g.translate(500,360); g.rotate(-0.35); g.fillStyle='rgba(120,120,120,.12)'; g.font='700 90px "Noto Sans TC",sans-serif'; g.fillText('僅供參考',0,0); g.restore();
     return c;
   }
-  root.FPSample = { draw: drawSamplePlan, drawColor: drawColorPlan };
-})(self);
+  return { draw: drawSamplePlan, drawColor: drawColorPlan, SIZE, WALLS, WINDOWS, DOORS, FURNITURE };
+});

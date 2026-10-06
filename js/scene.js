@@ -6,6 +6,7 @@
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false;   // 場景是靜止的：陰影只在重建或換光線時重算（見 changed）
     renderer.outputEncoding = THREE.sRGBEncoding;
     container.prepend(renderer.domElement);
 
@@ -14,6 +15,12 @@
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.maxPolarAngle = Math.PI * 0.495;
+    // 畫面沒有變就不重畫（省電，手機不發燙）：鏡頭移動、貼圖載入完呼叫 invalidate，
+    // 場景內容或光線改變呼叫 changed（陰影也要重算）；漫遊時每一幀都畫
+    let dirty = true;
+    const invalidate = () => { dirty = true; };
+    const changed = () => { dirty = true; renderer.shadowMap.needsUpdate = true; };
+    controls.addEventListener('change', invalidate);
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0x8b98a6, 0.75);
     scene.add(hemi);
@@ -61,11 +68,13 @@
       sky.set(L.sky);
       if (lamps) {
         for (const m of lamps.children) {
-          if (m.isLight) m.intensity = v[3];
+          // 沒開的燈直接隱藏，白天就不用每個像素多算十幾盞點光源
+          if (m.isLight) { m.intensity = v[3]; m.visible = v[3] > 0; }
           else m.visible = !!walk;
         }
       }
       lampMat.emissiveIntensity = v[3] ? 1 : 0;
+      changed();
     }
     function setLight(mode) {
       lightMode = LIGHTS[mode] ? mode : 'day';
@@ -117,7 +126,7 @@
 
     function modelMaterial() {
       if (modelMat) return modelMat;
-      const tex = new THREE.TextureLoader().load(FPModels.texture);
+      const tex = new THREE.TextureLoader().load(FPModels.texture, invalidate);
       tex.flipY = false;                   // glTF 的 UV 原點在左上
       tex.encoding = THREE.sRGBEncoding;
       modelMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7 });
@@ -174,7 +183,7 @@
     const facMats = new Map();             // 'fac:' + 樓層代號 + ':' + 哪一面 → 材質
     function facadeTexture(url) {
       if (facTex.has(url)) return facTex.get(url);
-      const tex = new THREE.TextureLoader().load(url);
+      const tex = new THREE.TextureLoader().load(url, invalidate);
       tex.encoding = THREE.sRGBEncoding;
       tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
       facTex.set(url, tex);
@@ -554,6 +563,7 @@
       sh.updateProjectionMatrix();
       sun.position.set(newSpan * 0.6, newSpan * 1.2, newSpan * 0.8);
       if (Math.abs(newSpan - span) > 0.01) { span = newSpan; resetCamera(); }
+      changed();
     }
 
     // 多樓層：目前樓層下面的樓層只畫牆、窗玻璃、地板和樓板，當作從旁邊看整棟房子的背景（不擋漫遊）。
@@ -588,6 +598,7 @@
       // 不是最下面那一層時，不畫貼原圖的大地板，才看得到下面的樓層
       if (floor) floor.visible = !(list && list.length);
       ctxRange = [0, 3];
+      changed();
       if (!list || !list.length) { pruneFacadeTex(); return; }
       context = new THREE.Group();
       for (const f of list) {
@@ -705,6 +716,7 @@
         resetCamera();
       }
       camera.updateProjectionMatrix();
+      invalidate();
     }
 
     let look = null;
@@ -742,12 +754,14 @@
       camera.position.set(d * 0.75, mid + d * 0.45, d * 1.05);
       controls.target.set(0, mid, 0);
       controls.update();
+      invalidate();
     }
 
     function resetCamera() {
       camera.position.set(span * 0.1, span * 1.0, span * 0.95);
       controls.target.set(0, 0, 0);
       controls.update();
+      invalidate();
     }
 
     function resize() {
@@ -755,6 +769,7 @@
       renderer.setSize(r.width, r.height, false);
       camera.aspect = r.width / Math.max(1, r.height);
       camera.updateProjectionMatrix();
+      invalidate();
     }
     new ResizeObserver(resize).observe(container);
     resize();
@@ -763,6 +778,7 @@
       requestAnimationFrame(loop);
       const dt = Math.min(0.1, ((now || performance.now()) - last) / 1000);
       last = now || performance.now();
+      if (container.hidden) return;   // 在其他分頁（2D 校正…）時不畫，切回來時 resize 會要求重畫
       if (walk) {
         FPWalk.step(walk.state, walk.input, dt, walk.solids);
         // 換樓層：onFloor 回傳 true 表示開始換（等 shiftWalk），否則等走出樓梯頂端或洞底再說
@@ -773,9 +789,12 @@
           else if (!d) walk.pending = false;
         }
         placeWalkCamera();
+        dirty = true;
       } else {
-        controls.update();
+        controls.update();   // 鏡頭還在動（含慣性）時會觸發 change
       }
+      if (!dirty) return;
+      dirty = false;
       renderer.render(scene, camera);
     })();
 

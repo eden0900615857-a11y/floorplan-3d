@@ -114,6 +114,7 @@
   // 專案：每張上傳的平面圖一個專案。上傳新檔案時先記下名字，下一次存檔時建立新專案
   let projects = null, pendingProject = null;
   function newProject(name, id) { if (!pendingFloor) pendingProject = { name, id }; }
+  // 每次修改都馬上存（關掉網頁也不會漏）；原圖、外觀圖沒換就不會重寫，連續的修改也會合併（見 js/projects.js）
   function save() {
     if (plan) FPSchemes.sync(plan);
     if (building && building.floors[building.active]) building.floors[building.active].edited = edited;
@@ -231,57 +232,39 @@
     const ai = $('aiMode').checked && FPML.available();
     if (ai && !src.ml) runAI(src);
     const ml = ai ? src.ml : null;
-    const minThickness = +$('minT').value;
-    const color = $('colorMode').checked;
-    const mask = FPDetect.wallMask(color ? src.cgray : src.gray, src.w, src.h, {
-      threshold: $('autoThr').checked ? 'auto' : +$('thr').value,
-      invert: $('invert').checked,
-      minThickness
-    });
-    $('thr').value = mask.threshold;
-    $('thrOut').textContent = mask.threshold;
-    // 牆、門窗、外牆：每公尺 ppm 像素（門窗缺口的寬度範圍、接牆距離都依比例換算）
-    const build = ppm => {
-      // 牆：AI 辨識用模型找到的牆像素，否則用黑白門檻找到的粗線
-      const vec = ml ? FPML.walls(ml, src.w, src.h, ppm) : FPVectorize.extractWalls(mask.walls, src.w, src.h, { minThickness });
-      const walls = ml ? vec.mask : mask.walls;
-      // 圖片裁到外牆時，沿著圖片邊緣補牆（AI 辨識在 FPML.walls 裡已經補過）
-      const closed = ml ? vec : FPVectorize.closeBorder(vec.segments, src.w, src.h);
-      // 門窗：只看牆以外的細線（門弧、窗線），缺口寬度限制在 0.5–2.5 公尺
-      const ink = new Uint8Array(mask.raw.length);
-      for (let i = 0; i < ink.length; i++) ink[i] = (mask.raw[i] | (color ? src.blue[i] : 0)) & (1 - (mask.walls[i] | walls[i]));
-      // AI 辨識時，規則找不到開門弧或窗線的缺口，再問模型是不是門窗
-      const ops = FPOpenings.detect(closed.segments, ink, src.w, src.h, {
-        minGap: 0.5 * ppm, maxGap: 2.5 * ppm, hint: ml ? FPML.openingHint(ml, src.w, src.h) : null
-      });
-      // 外牆沒畫完整（圖片裁掉、陽台只有細欄杆線）的地方，把牆沿著外緣延伸接起來，讓房間封閉
-      FPVectorize.closeOuter(ops.segments, src.w, src.h, { tol: 0.25 * ppm, reach: 0.5 * ppm, maxLen: 6 * ppm });
-      return { vec, ops };
-    };
-    let ppm = src.w / Math.max(1, +$('planW').value || 12);
-    let { vec, ops } = build(ppm);
     // 新上傳的圖片：用門寬推算比例（AI 辨識要等模型跑完，用模型的結果推算）
-    if (src.autoScale && (!ai || ml)) {
+    const autoScale = !!src.autoScale && (!ai || !!ml);
+    // 牆、門窗、外牆的辨識流程在 FPPipeline（不碰畫面，有測試）
+    const res = FPPipeline.raster(src, {
+      ppm: src.w / Math.max(1, +$('planW').value || 12),
+      threshold: $('autoThr').checked ? 'auto' : +$('thr').value,
+      minThickness: +$('minT').value,
+      invert: $('invert').checked,
+      color: $('colorMode').checked,
+      ml, autoScale
+    });
+    $('thr').value = res.threshold;
+    $('thrOut').textContent = res.threshold;
+    const ppm = res.ppm;
+    if (autoScale) {
       src.autoScale = false;
-      const est = FPOpenings.scaleFromDoors(ops.openings);
-      if (est) {
-        if (Math.abs(est / ppm - 1) > 0.03) { ppm = est; ({ vec, ops } = build(ppm)); }
+      if (res.scaled) {
         $('planW').value = +(src.w / ppm).toFixed(1);
         src.scaleMsg = '已依門寬（約 ' + FPOpenings.DOOR_WIDTH * 100 + ' 公分）推算比例，圖面寬約 ' + (src.w / ppm).toFixed(1) +
           ' 公尺。有已知尺寸的話，請到「2D 校正」用比例尺確認。';
         if (!ai) note(src.scaleMsg);
       }
     }
-    const p = FPPlan.fromSegments(ops.segments, {
+    const p = FPPlan.fromSegments(res.segments, {
       widthPx: src.w, heightPx: src.h,
       pxPerMeter: ppm,
       wallHeight: +$('wallH').value,
       image: src.dataURL
-    }, ops.openings);
+    }, res.openings);
     // AI 辨識也看得出房間種類，幫房間取名字（臥室、浴室…）
     if (ml) p.rooms = FPML.nameRooms(FPRooms.assign(FPRooms.detect(p), []), ml, ppm, src.w);
     setEdited(false);
-    setPlan(p, { coverage: vec.coverage, ms: performance.now() - t0 });
+    setPlan(p, { coverage: res.coverage, ms: performance.now() - t0 });
     save();
   }
 
