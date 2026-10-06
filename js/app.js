@@ -411,6 +411,7 @@
     showQuantities();
     $('wallPaint').value = FPMaterials.wall(plan.materials && plan.materials.wall).id;
     $('extMat').value = (plan.materials && FPMaterials.exterior(plan.materials.exterior) && plan.materials.exterior) || '';
+    syncFacades();
     // 手動修改後，覆蓋率就不再代表目前的牆
     $('sCover').textContent = !edited && lastStats.coverage != null ? Math.round(lastStats.coverage * 100) + '%' : '–';
     $('sTime').textContent = lastStats.ms != null ? lastStats.ms.toFixed(0) + ' ms' : '–';
@@ -716,17 +717,73 @@
 
   // 3D / 2D 分頁
   function showTab(which) {
-    const panels = { '3d': ['tab3d', 'view'], '2d': ['tab2d', 'editor'], pick: ['tabPick', 'pick'] };
+    const panels = { '3d': ['tab3d', 'view'], '2d': ['tab2d', 'editor'], pick: ['tabPick', 'pick'], facade: ['tabFacade', 'facade'] };
     for (const k in panels) {
       $(panels[k][0]).setAttribute('aria-selected', String(k === which));
       $(panels[k][1]).hidden = k !== which;
     }
     if (which === '2d') requestAnimationFrame(() => editor.redraw());
     if (which === 'pick') requestAnimationFrame(() => picker.layout());
+    if (which === 'facade') requestAnimationFrame(() => facadePicker.layout());
   }
   $('tab3d').addEventListener('click', () => showTab('3d'));
   $('tab2d').addEventListener('click', () => showTab('2d'));
   $('tabPick').addEventListener('click', () => showTab('pick'));
+  $('tabFacade').addEventListener('click', () => showTab('facade'));
+
+  // 外觀圖：拉正後存在這一層平面圖的 facades（所有方案共用，不進復原紀錄）
+  const facadePicker = FPFacadePick.createPicker($('facadeCanvas'));
+  for (const sd of FPFacade.SIDES) {
+    const o = document.createElement('option');
+    o.value = sd.id; o.textContent = sd.name;
+    $('facadeSide').appendChild(o);
+  }
+  function syncFacades() {
+    const list = $('facadeList');
+    list.textContent = '';
+    for (const f of (plan && plan.facades) || []) {
+      const item = document.createElement('span');
+      item.setAttribute('role', 'listitem');
+      const sd = FPFacade.side(f.side);
+      item.textContent = sd ? sd.name.split('（')[0] : f.side;
+      const del = document.createElement('button');
+      del.type = 'button'; del.textContent = '移除';
+      del.setAttribute('aria-label', '移除' + item.textContent + '的外觀圖');
+      del.addEventListener('click', () => {
+        plan.facades = plan.facades.filter(x => x !== f);
+        if (!plan.facades.length) delete plan.facades;
+        refresh();
+        save();
+      });
+      item.appendChild(del);
+      list.appendChild(item);
+    }
+  }
+  $('facadeOpen').addEventListener('click', () => $('facadeFile').click());
+  $('facadeFile').addEventListener('change', () => {
+    const file = $('facadeFile').files[0];
+    $('facadeFile').value = '';
+    if (!file) return;
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      facadePicker.show(img);
+      $('facadeApply').disabled = false;
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); note('無法讀取這張圖片，請改用 JPG 或 PNG。', true); };
+    img.src = url;
+  });
+  $('facadeApply').addEventListener('click', () => {
+    const side = $('facadeSide').value, ext = plan && FPFacade.extent(plan, side);
+    if (!ext || !facadePicker.image) return;
+    // 立面圖的長寬比照這一面的實際尺寸，寬 1024 像素
+    const W = 1024, H = Math.max(64, Math.min(2048, Math.round(W * ext.h / Math.max(0.5, ext.u1 - ext.u0))));
+    const image = FPFacadePick.rectify(facadePicker.image, facadePicker.getQuad(), W, H);
+    plan.facades = ((plan.facades || []).filter(f => f.side !== side)).concat({ id: 'fa' + Date.now().toString(36), side, image });
+    refresh();
+    save();
+    note('已把外觀圖貼到' + FPFacade.side(side).name.split('（')[0] + '。切到「3D 檢視」從外面看看；對不準就調整四個角再按一次。');
+  });
   $('pdfPage').addEventListener('change', () => showPdfPage(+$('pdfPage').value));
   $('pickGo').addEventListener('click', pickDetect);
 

@@ -16,6 +16,8 @@
   // 分享用的精簡平面圖：不含原圖，數字四捨五入
   function strip(plan) {
     const p = JSON.parse(JSON.stringify(plan, (k, v) => round(v)));
+    // 外觀圖是圖片，放進網址太長
+    delete p.facades;
     if (p.source) {
       const s = { widthPx: p.source.widthPx, heightPx: p.source.heightPx, pxPerMeter: p.source.pxPerMeter };
       if (s.widthPx && s.pxPerMeter) p.source = s; else delete p.source;

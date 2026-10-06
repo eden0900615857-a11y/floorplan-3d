@@ -132,6 +132,17 @@
     // 地板材質：貼圖一張代表 size 公尺，房間地板的 UV 單位是公尺
     // 外牆材質：貼圖照世界座標鋪（牆是同一個方塊拉長的，方塊本身的 UV 會被拉伸），
     // 牆面朝 x 方向就用 (z, y)，朝 z 方向就用 (x, y)，所以不管牆多長，磚的大小都一樣
+    function worldVaryings(sh) {
+      sh.vertexShader = 'varying vec3 vWPos;\nvarying vec3 vWNrm;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+          vec4 wp4 = vec4(transformed, 1.0);
+          vec3 wn = objectNormal;
+          #ifdef USE_INSTANCING
+            wp4 = instanceMatrix * wp4;
+            wn = mat3(instanceMatrix) * wn;
+          #endif
+          vWPos = (modelMatrix * wp4).xyz;
+          vWNrm = mat3(modelMatrix) * wn;`);
+    }
     const extMats = new Map();
     function extMat(id) {
       const e = FPMaterials.exterior(id);
@@ -147,15 +158,7 @@
       const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: e.kind === 'paint' ? 0.9 : 0.8 });
       mat.onBeforeCompile = sh => {
         sh.uniforms.texSize = { value: e.size };
-        sh.vertexShader = 'varying vec3 vWPos;\nvarying vec3 vWNrm;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-          vec4 wp4 = vec4(transformed, 1.0);
-          vec3 wn = objectNormal;
-          #ifdef USE_INSTANCING
-            wp4 = instanceMatrix * wp4;
-            wn = mat3(instanceMatrix) * wn;
-          #endif
-          vWPos = (modelMatrix * wp4).xyz;
-          vWNrm = mat3(modelMatrix) * wn;`);
+        worldVaryings(sh);
         sh.fragmentShader = 'uniform float texSize;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n' + sh.fragmentShader.replace('#include <map_fragment>',
           THREE.ShaderChunk.map_fragment.replace(/vUv/g, 'wUv').replace('#ifdef USE_MAP', `#ifdef USE_MAP
             vec3 an = abs(normalize(vWNrm));
@@ -163,6 +166,60 @@
       };
       extMats.set(e.id, mat);
       return mat;
+    }
+
+    // 外觀圖（FPFacade）：拉正後的立面圖照世界座標貼在那一面外牆上，橫向對應這一層牆的外框，縱向對應地面到牆頂；
+    // 外框以外（例如退縮的牆面超出牆頂）用淺灰色。材質每次重建都重做（範圍跟著牆變），貼圖依圖片快取
+    const facTex = new Map();              // data URL → Texture
+    const facMats = new Map();             // 'fac:' + 樓層代號 + ':' + 哪一面 → 材質
+    function facadeTexture(url) {
+      if (facTex.has(url)) return facTex.get(url);
+      const tex = new THREE.TextureLoader().load(url);
+      tex.encoding = THREE.sRGBEncoding;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      facTex.set(url, tex);
+      return tex;
+    }
+    // off：這一層平面圖座標到世界座標的位移 [x, y, z]
+    function facadeMat(url, ext, off) {
+      const mat = new THREE.MeshStandardMaterial({ map: facadeTexture(url), roughness: 0.85 });
+      mat.userData.url = url;
+      const u0 = ext.u0 + (ext.axis === 'x' ? off[0] : off[2]);
+      mat.onBeforeCompile = sh => {
+        Object.assign(sh.uniforms, {
+          facAxis: { value: ext.axis === 'x' ? 0 : 1 }, facU0: { value: u0 }, facLen: { value: Math.max(0.01, ext.u1 - ext.u0) },
+          facFlip: { value: ext.flip ? 1 : 0 }, facBase: { value: off[1] }, facH: { value: ext.h }
+        });
+        worldVaryings(sh);
+        const chunk = THREE.ShaderChunk.map_fragment.replace(/vUv/g, 'fUv'), end = chunk.lastIndexOf('#endif');
+        sh.fragmentShader = 'uniform float facAxis, facU0, facLen, facFlip, facBase, facH;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n' +
+          sh.fragmentShader.replace('#include <map_fragment>', (chunk.slice(0, end) + '}\n' + chunk.slice(end)).replace('#ifdef USE_MAP', `#ifdef USE_MAP
+            float fc = facAxis > 0.5 ? vWPos.z : vWPos.x;
+            vec2 fUv = vec2(facFlip > 0.5 ? (facU0 + facLen - fc) / facLen : (fc - facU0) / facLen, (vWPos.y - facBase) / facH);
+            if (fUv.x < 0.0 || fUv.x > 1.0 || fUv.y < 0.0 || fUv.y > 1.0) diffuseColor.rgb *= vec3(0.82);
+            else {`));
+      };
+      return mat;
+    }
+    // 這一層有哪幾面有外觀圖：{front: 'fac:main:front', …}
+    function facadeIds(plan, tag, off) {
+      const out = {};
+      for (const f of plan.facades || []) {
+        const ext = f.image && FPFacade.extent(plan, f.side);
+        if (!ext) continue;
+        const id = 'fac:' + tag + ':' + f.side;
+        if (!facMats.has(id)) facMats.set(id, facadeMat(f.image, ext, off));
+        out[f.side] = id;
+      }
+      return out;
+    }
+    function dropFacades(prefix) {
+      for (const [id, m] of facMats) if (id.startsWith(prefix)) { m.dispose(); facMats.delete(id); }
+    }
+    // 重建完再丟掉沒在用的貼圖（先丟會整張重新載入，畫面閃一下）
+    function pruneFacadeTex() {
+      const used = new Set([...facMats.values()].map(m => m.userData.url));
+      for (const [url, t] of facTex) if (!used.has(url)) { t.dispose(); facTex.delete(url); }
     }
 
     function floorMaterial(id) {
@@ -183,6 +240,7 @@
 
     function clear() {
       walls.forEach(m => { scene.remove(m); m.dispose(); });
+      dropFacades('fac:main:');
       walls = [];
       if (lamps) {
         scene.remove(lamps);
@@ -266,15 +324,22 @@
 
     // 牆面材質的代號：房間有選牆色就用牆色；屋外和陽台、露台那一面用外牆材質（'ext:' + id）；
     // 其他（含沒選外牆材質）是空字串 = 全屋牆面顏色。paints 為 false 時不看房間牆色（背景樓層用）
-    function sideKeys(plan, outdoor, paints) {
+    // facades：facadeIds 的結果；這一面朝外的方向有外觀圖時優先用外觀圖（side 是 'left' 或 'right'，對應 a→b 的左右）
+    function sideKeys(plan, outdoor, paints, facades) {
       const houseExt = (plan.materials && plan.materials.exterior) || '';
-      return (r, w) => {
+      return (r, w, side) => {
         if (paints && r && r.paint) return r.paint;
+        if (r && !outdoor.has(r.id)) return '';
+        if (facades && side) {
+          const L = FPPlan.wallLength(w), ux = (w.b[0] - w.a[0]) / L, uy = (w.b[1] - w.a[1]) / L;
+          const id = facades[side === 'left' ? FPFacade.sideOf(uy, -ux) : FPFacade.sideOf(-uy, ux)];
+          if (id) return id;
+        }
         const ext = w.ext || houseExt;
-        return (!r || outdoor.has(r.id)) && ext ? 'ext:' + ext : '';
+        return ext ? 'ext:' + ext : '';
       };
     }
-    const keyMat = id => !id ? wallMat : id.startsWith('ext:') ? extMat(id.slice(4)) || wallMat : paintMat(id);
+    const keyMat = id => !id ? wallMat : id.startsWith('ext:') ? extMat(id.slice(4)) || wallMat : id.startsWith('fac:') ? facMats.get(id) || wallMat : paintMat(id);
 
     function setPlan(next, image) {
       plan = next;
@@ -286,7 +351,8 @@
       const boxes = [], panes = [], rails = [], parts = { frame: [], leaf: [], handle: [] };
       const houseWall = plan.materials && plan.materials.wall;
       const roomAt = p => FPRooms.hitRoom(plan, p);
-      const outdoor = FPRooms.outdoorRooms(plan), sideKey = sideKeys(plan, outdoor, true);
+      const outdoor = FPRooms.outdoorRooms(plan), sideKey = sideKeys(plan, outdoor, true, facadeIds(plan, 'main', [-cx, 0, -cy]));
+      pruneFacadeTex();
       for (const w of plan.walls) {
         const L = FPPlan.wallLength(w);
         if (!L) continue;
@@ -296,13 +362,13 @@
           // 玻璃欄杆：牆座照一般的牆上色，玻璃和金屬扶手另外畫
           if (w.kind === 'glass' && pc.y0 === 0) {
             for (const r of FPPlan.railingParts(w, pc.s0, pc.s1)) {
-              if (r.kind === 'curb') boxes.push({ w, L, ...r, key: sideKey(null, w) + '|' + sideKey(null, w) });
+              if (r.kind === 'curb') boxes.push({ w, L, ...r, key: sideKey(null, w, 'left') + '|' + sideKey(null, w, 'right') });
               else (r.kind === 'glass' ? panes : rails).push({ w, L, ...r });
             }
             continue;
           }
           for (const run of FPPlan.faceRooms(w, pc.s0, pc.s1, roomAt)) {
-            boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: sideKey(run.left, w) + '|' + sideKey(run.right, w) });
+            boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: sideKey(run.left, w, 'left') + '|' + sideKey(run.right, w, 'right') });
           }
         }
         for (const sp of FPPlan.openingSpans(w, ops)) {
@@ -518,16 +584,17 @@
         context.traverse(o => { if (o.isInstancedMesh) o.dispose(); else if (o.isMesh && o.geometry !== box) o.geometry.dispose(); });
         context = null;
       }
+      dropFacades('fac:ctx');
       // 不是最下面那一層時，不畫貼原圖的大地板，才看得到下面的樓層
       if (floor) floor.visible = !(list && list.length);
       ctxRange = [0, 3];
-      if (!list || !list.length) return;
+      if (!list || !list.length) { pruneFacadeTex(); return; }
       context = new THREE.Group();
       for (const f of list) {
         const g = new THREE.Group();
         g.position.set(f.dx - center[0], f.y, f.dy - center[1]);
         const boxes = [], panes = [], rails = [];
-        const ctxKey = sideKeys(f.plan, FPRooms.outdoorRooms(f.plan), false), ctxRoomAt = p => FPRooms.hitRoom(f.plan, p);
+        const ctxKey = sideKeys(f.plan, FPRooms.outdoorRooms(f.plan), false, f.slabOnly ? null : facadeIds(f.plan, 'ctx' + list.indexOf(f), [f.dx - center[0], f.y, f.dy - center[1]])), ctxRoomAt = p => FPRooms.hitRoom(f.plan, p);
         for (const w of f.slabOnly ? [] : f.plan.walls) {
           const L = FPPlan.wallLength(w);
           if (!L) continue;
@@ -535,13 +602,13 @@
           for (const pc of FPPlan.wallPieces(w, ops)) {
             if (w.kind === 'glass' && pc.y0 === 0) {
               for (const r of FPPlan.railingParts(w, pc.s0, pc.s1)) {
-                (r.kind === 'curb' ? boxes : r.kind === 'glass' ? panes : rails).push({ w, L, ...r, key: ctxKey(null, w) + '|' + ctxKey(null, w) });
+                (r.kind === 'curb' ? boxes : r.kind === 'glass' ? panes : rails).push({ w, L, ...r, key: ctxKey(null, w, 'left') + '|' + ctxKey(null, w, 'right') });
               }
               continue;
             }
             // 外牆材質照實畫（從外面看整棟時看得到），室內那一面用全屋牆面顏色
             for (const run of FPPlan.faceRooms(w, pc.s0, pc.s1, ctxRoomAt)) {
-              boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: ctxKey(run.left, w) + '|' + ctxKey(run.right, w) });
+              boxes.push({ w, L, s0: run.s0, s1: run.s1, y0: pc.y0, y1: pc.y1, t: w.thickness, key: ctxKey(run.left, w, 'left') + '|' + ctxKey(run.right, w, 'right') });
             }
           }
           for (const sp of FPPlan.openingSpans(w, ops)) {
@@ -596,6 +663,7 @@
         context.add(g);
       }
       scene.add(context);
+      pruneFacadeTex();
     }
 
     // 漫遊的擋路範圍和樓梯斜坡（往上的樓梯、下面上來的樓梯洞）
